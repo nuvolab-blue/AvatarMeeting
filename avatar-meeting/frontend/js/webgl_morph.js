@@ -6,7 +6,7 @@
  *  2. Map original avatar image as texture (UV = rest landmark positions)
  *  3. Deform vertex positions based on facial parameters
  *  4. GPU renders warped triangles with smooth barycentric interpolation
- *  5. Mouth cavity via per-vertex darkness in fragment shader
+ *  5. Mouth interior: per-vertex cavity weight → white teeth blend when open
  *
  * Coordinate convention:
  *  - MediaPipe landmarks: x ∈ [0,1] left→right, y ∈ [0,1] top→bottom
@@ -41,10 +41,12 @@ uniform sampler2D u_image;
 uniform float u_mouthOpen;
 void main() {
   vec4 tex = texture2D(u_image, v_texCoord);
-  // No cavity darkening — it caused unnatural black-teeth effect.
-  // The mesh warp alone creates a natural mouth opening by stretching
-  // the original lip/skin texture, which looks more realistic.
-  gl_FragColor = tex;
+  // Mouth interior: blend toward teeth/gum color when mouth is open.
+  // Upper inner lip → white teeth, lower inner lip → slightly pink gum.
+  float cavityStrength = v_cavity * smoothstep(0.05, 0.25, u_mouthOpen);
+  vec3 teethColor = vec3(0.92, 0.90, 0.88); // natural off-white teeth
+  vec3 blended = mix(tex.rgb, teethColor, cavityStrength * 0.75);
+  gl_FragColor = vec4(blended, tex.a);
 }
 `;
 
@@ -74,6 +76,20 @@ const FOREHEAD = new Set([10, 109, 67, 103, 54, 21, 338, 297, 332, 284, 251]);
 
 const NOSE_BRIDGE = new Set([6, 197, 195, 5, 4, 1, 168, 8]);
 
+// Glasses frame zone — landmarks along orbital rim that must NOT move
+// with brow/eye deformation to prevent glasses distortion.
+// Includes: orbital rim, temple area, upper cheek near frame
+const GLASSES_FRAME = new Set([
+  // Left orbital rim (outer ring around left eye)
+  226, 247, 30, 29, 27, 28, 56, 190, 243, 112, 26, 22, 23, 24, 110, 25,
+  // Right orbital rim (outer ring around right eye)
+  446, 467, 260, 259, 257, 258, 286, 414, 463, 341, 256, 252, 253, 254, 339, 255,
+  // Bridge area near glasses
+  168, 6, 197, 195, 5, 4,
+  // Temple sides
+  130, 247, 359, 467,
+]);
+
 // Border anchors (pinned — never deform)
 const BORDER_POINTS = [
   [0,0],[.2,0],[.4,0],[.5,0],[.6,0],[.8,0],[1,0],
@@ -89,8 +105,11 @@ const BORDER_POINTS = [
 // Per-landmark deformation weights: [mouthDy, browDy, eyeDy, headW, cavityW]
 // ============================================================================
 function landmarkWeights(idx) {
+  // ---- Glasses frame: FROZEN — prevents frame distortion ----
+  if (GLASSES_FRAME.has(idx))    return [0, 0, 0, 0.1, 0];
+
   // ---- Mouth region ----
-  // Inner lip: main mouth opening deformation (subtle — avoid face collapse)
+  // Inner lip: main mouth opening deformation
   if (UPPER_INNER_LIP.has(idx)) return [-0.30,  0,    0,   0.3, 0.85];
   if (LOWER_INNER_LIP.has(idx)) return [ 0.55,  0,    0,   0.3, 0.85];
   if (LIP_CORNERS.has(idx))     return [ 0.02,  0,    0,   0.3, 0.3];
@@ -100,13 +119,13 @@ function landmarkWeights(idx) {
   // Chin: very gentle follow to avoid face stretching
   if (CHIN_SET.has(idx))         return [ 0.10,  0,    0,   0.3, 0.0];
 
-  // ---- Eyelids: moderate for visible blink, avoids glasses distortion ----
-  if (UPPER_LID_L.has(idx) || UPPER_LID_R.has(idx)) return [0, 0, -0.70, 0.3, 0];
-  if (LOWER_LID_L.has(idx) || LOWER_LID_R.has(idx)) return [0, 0,  0.20, 0.3, 0];
+  // ---- Eyelids: stronger for visible blink ----
+  if (UPPER_LID_L.has(idx) || UPPER_LID_R.has(idx)) return [0, 0, -1.0, 0.3, 0];
+  if (LOWER_LID_L.has(idx) || LOWER_LID_R.has(idx)) return [0, 0,  0.30, 0.3, 0];
 
-  // ---- Brows: visible raise ----
-  if (BROW_L.has(idx) || BROW_R.has(idx))           return [0, -0.70, 0,  0.3, 0];
-  if (FOREHEAD.has(idx))                              return [0, -0.20, 0,  0.3, 0];
+  // ---- Brows: visible raise (glasses-safe — frame landmarks frozen above) ----
+  if (BROW_L.has(idx) || BROW_R.has(idx))           return [0, -0.85, 0,  0.3, 0];
+  if (FOREHEAD.has(idx))                              return [0, -0.30, 0,  0.3, 0];
 
   // ---- Nose: fixed ----
   if (NOSE_BRIDGE.has(idx))                           return [0, 0, 0, 0.15, 0];
@@ -288,8 +307,8 @@ class WebGLMorph {
     // Deformation amounts in normalised coords (0..1 space)
     // Tuned for natural movement: mouth visible, eyes subtle, brows gentle
     const mouth = (p.mouthOpen || 0) * 0.04;  // max 4% of image height
-    const brow  = (p.browRaise || 0) * 0.02;  // max 2%
-    const eye   = (p.eyeWide   || 0) * 0.015; // max 1.5%
+    const brow  = (p.browRaise || 0) * 0.025; // max 2.5%
+    const eye   = (p.eyeWide   || 0) * 0.025; // max 2.5% (stronger for visible blink)
     const hx = p.headX || 0;
     const hy = p.headY || 0;
 
