@@ -89,26 +89,30 @@ const BORDER_POINTS = [
 // Per-landmark deformation weights: [mouthDy, browDy, eyeDy, headW, cavityW]
 // ============================================================================
 function landmarkWeights(idx) {
-  // Inner lip — moves most (mouth opening)
-  if (UPPER_INNER_LIP.has(idx)) return [-0.55,  0,    0,   0.8, 0.95];
-  if (LOWER_INNER_LIP.has(idx)) return [ 1.0,   0,    0,   0.8, 0.95];
-  if (LIP_CORNERS.has(idx))     return [ 0.05,  0,    0,   0.8, 0.4];
-  // Outer lip
-  if (UPPER_OUTER_LIP.has(idx)) return [-0.25,  0,    0,   0.8, 0.0];
-  if (LOWER_OUTER_LIP.has(idx)) return [ 0.65,  0,    0,   0.8, 0.0];
-  // Chin follows lower lip
-  if (CHIN_SET.has(idx))         return [ 0.35,  0,    0,   0.8, 0.0];
-  // Eyelids
-  if (UPPER_LID_L.has(idx) || UPPER_LID_R.has(idx)) return [0, 0, -1.0,  0.8, 0];
-  if (LOWER_LID_L.has(idx) || LOWER_LID_R.has(idx)) return [0, 0,  0.4,  0.8, 0];
-  // Brows
-  if (BROW_L.has(idx) || BROW_R.has(idx))           return [0, -1.0,  0,  0.8, 0];
-  // Forehead follows brow partially
-  if (FOREHEAD.has(idx))                              return [0, -0.4,  0,  0.8, 0];
-  // Nose stays mostly fixed
-  if (NOSE_BRIDGE.has(idx))                           return [0,  0,    0,  0.5, 0];
-  // Default face point — moves with head only
-  return [0, 0, 0, 0.7, 0];
+  // ---- Mouth region ----
+  // Inner lip: main mouth opening deformation (subtle — avoid face collapse)
+  if (UPPER_INNER_LIP.has(idx)) return [-0.30,  0,    0,   0.3, 0.85];
+  if (LOWER_INNER_LIP.has(idx)) return [ 0.55,  0,    0,   0.3, 0.85];
+  if (LIP_CORNERS.has(idx))     return [ 0.02,  0,    0,   0.3, 0.3];
+  // Outer lip: follows inner lip at reduced strength
+  if (UPPER_OUTER_LIP.has(idx)) return [-0.12,  0,    0,   0.3, 0.0];
+  if (LOWER_OUTER_LIP.has(idx)) return [ 0.30,  0,    0,   0.3, 0.0];
+  // Chin: very gentle follow to avoid face stretching
+  if (CHIN_SET.has(idx))         return [ 0.10,  0,    0,   0.3, 0.0];
+
+  // ---- Eyelids: VERY subtle to avoid distorting glasses ----
+  if (UPPER_LID_L.has(idx) || UPPER_LID_R.has(idx)) return [0, 0, -0.35, 0.3, 0];
+  if (LOWER_LID_L.has(idx) || LOWER_LID_R.has(idx)) return [0, 0,  0.12, 0.3, 0];
+
+  // ---- Brows: gentle raise, no wave ----
+  if (BROW_L.has(idx) || BROW_R.has(idx))           return [0, -0.40, 0,  0.3, 0];
+  if (FOREHEAD.has(idx))                              return [0, -0.12, 0,  0.3, 0];
+
+  // ---- Nose: fixed ----
+  if (NOSE_BRIDGE.has(idx))                           return [0, 0, 0, 0.15, 0];
+
+  // ---- Default face landmark: minimal head movement ----
+  return [0, 0, 0, 0.2, 0];
 }
 
 // ============================================================================
@@ -282,10 +286,10 @@ class WebGLMorph {
     this._curPos.set(this._restPos);
 
     // Deformation amounts in normalised coords (0..1 space)
-    // These are the KEY multipliers that determine visible deformation
-    const mouth = (p.mouthOpen || 0) * 0.08;  // max 8% of image height
-    const brow  = (p.browRaise || 0) * 0.03;  // max 3%
-    const eye   = (p.eyeWide   || 0) * 0.025; // max 2.5%
+    // Keep SMALL to avoid face collapse — mesh warping amplifies visually
+    const mouth = (p.mouthOpen || 0) * 0.035; // max 3.5% of image height
+    const brow  = (p.browRaise || 0) * 0.012; // max 1.2%
+    const eye   = (p.eyeWide   || 0) * 0.008; // max 0.8% (subtle for glasses)
     const hx = p.headX || 0;
     const hy = p.headY || 0;
 
@@ -423,21 +427,21 @@ class WebGLMorph {
         const fd = Math.sqrt((x - cx) ** 2 + ((y - 0.45) * 1.2) ** 2);
         const headW = Math.max(0, 1 - fd / 0.35);
 
-        // Mouth influence
+        // Mouth influence (reduced to avoid face collapse)
         const md = Math.sqrt((x - cx) ** 2 + ((y - mouthY) * 1.8) ** 2);
-        const mi = Math.max(0, 1 - md / 0.12);
-        const mDy = mi * (y > mouthY ? 0.9 : -0.5);
-        const cv = md < 0.06 ? mi : 0;
+        const mi = Math.max(0, 1 - md / 0.10);
+        const mDy = mi * (y > mouthY ? 0.50 : -0.28);
+        const cv = md < 0.05 ? mi * 0.8 : 0;
 
-        // Brow
+        // Brow (gentle)
         const bd = Math.sqrt((x - cx) ** 2 + ((y - browY) * 2.5) ** 2);
-        const bDy = Math.max(0, 1 - bd / 0.15) * -1.0;
+        const bDy = Math.max(0, 1 - bd / 0.12) * -0.40;
 
-        // Eyes
-        const edL = Math.sqrt(((x - eyeLX) * 2.5) ** 2 + ((y - eyeY) * 5) ** 2);
-        const edR = Math.sqrt(((x - eyeRX) * 2.5) ** 2 + ((y - eyeY) * 5) ** 2);
-        const ei = Math.max(0, 1 - Math.min(edL, edR) / 0.2);
-        const eDy = ei * (y < eyeY ? -1.0 : 0.4);
+        // Eyes (very subtle — glasses-safe)
+        const edL = Math.sqrt(((x - eyeLX) * 3) ** 2 + ((y - eyeY) * 6) ** 2);
+        const edR = Math.sqrt(((x - eyeRX) * 3) ** 2 + ((y - eyeY) * 6) ** 2);
+        const ei = Math.max(0, 1 - Math.min(edL, edR) / 0.15);
+        const eDy = ei * (y < eyeY ? -0.35 : 0.12);
 
         wts[vi * 5]     = mDy;
         wts[vi * 5 + 1] = bDy;
