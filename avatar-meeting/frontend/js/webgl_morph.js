@@ -41,10 +41,10 @@ uniform sampler2D u_image;
 uniform float u_mouthOpen;
 void main() {
   vec4 tex = texture2D(u_image, v_texCoord);
-  // Darken mouth interior when open
-  float dark = v_cavity * smoothstep(0.0, 0.08, u_mouthOpen);
-  vec3 cavColor = vec3(0.04, 0.01, 0.01);
-  gl_FragColor = vec4(mix(tex.rgb, cavColor, dark), 1.0);
+  // No cavity darkening — it caused unnatural black-teeth effect.
+  // The mesh warp alone creates a natural mouth opening by stretching
+  // the original lip/skin texture, which looks more realistic.
+  gl_FragColor = tex;
 }
 `;
 
@@ -100,13 +100,13 @@ function landmarkWeights(idx) {
   // Chin: very gentle follow to avoid face stretching
   if (CHIN_SET.has(idx))         return [ 0.10,  0,    0,   0.3, 0.0];
 
-  // ---- Eyelids: VERY subtle to avoid distorting glasses ----
-  if (UPPER_LID_L.has(idx) || UPPER_LID_R.has(idx)) return [0, 0, -0.35, 0.3, 0];
-  if (LOWER_LID_L.has(idx) || LOWER_LID_R.has(idx)) return [0, 0,  0.12, 0.3, 0];
+  // ---- Eyelids: moderate for visible blink, avoids glasses distortion ----
+  if (UPPER_LID_L.has(idx) || UPPER_LID_R.has(idx)) return [0, 0, -0.70, 0.3, 0];
+  if (LOWER_LID_L.has(idx) || LOWER_LID_R.has(idx)) return [0, 0,  0.20, 0.3, 0];
 
-  // ---- Brows: gentle raise, no wave ----
-  if (BROW_L.has(idx) || BROW_R.has(idx))           return [0, -0.40, 0,  0.3, 0];
-  if (FOREHEAD.has(idx))                              return [0, -0.12, 0,  0.3, 0];
+  // ---- Brows: visible raise ----
+  if (BROW_L.has(idx) || BROW_R.has(idx))           return [0, -0.70, 0,  0.3, 0];
+  if (FOREHEAD.has(idx))                              return [0, -0.20, 0,  0.3, 0];
 
   // ---- Nose: fixed ----
   if (NOSE_BRIDGE.has(idx))                           return [0, 0, 0, 0.15, 0];
@@ -286,10 +286,10 @@ class WebGLMorph {
     this._curPos.set(this._restPos);
 
     // Deformation amounts in normalised coords (0..1 space)
-    // Keep SMALL to avoid face collapse — mesh warping amplifies visually
-    const mouth = (p.mouthOpen || 0) * 0.035; // max 3.5% of image height
-    const brow  = (p.browRaise || 0) * 0.012; // max 1.2%
-    const eye   = (p.eyeWide   || 0) * 0.008; // max 0.8% (subtle for glasses)
+    // Tuned for natural movement: mouth visible, eyes subtle, brows gentle
+    const mouth = (p.mouthOpen || 0) * 0.04;  // max 4% of image height
+    const brow  = (p.browRaise || 0) * 0.02;  // max 2%
+    const eye   = (p.eyeWide   || 0) * 0.015; // max 1.5%
     const hx = p.headX || 0;
     const hy = p.headY || 0;
 
@@ -433,15 +433,15 @@ class WebGLMorph {
         const mDy = mi * (y > mouthY ? 0.50 : -0.28);
         const cv = md < 0.05 ? mi * 0.8 : 0;
 
-        // Brow (gentle)
+        // Brow
         const bd = Math.sqrt((x - cx) ** 2 + ((y - browY) * 2.5) ** 2);
-        const bDy = Math.max(0, 1 - bd / 0.12) * -0.40;
+        const bDy = Math.max(0, 1 - bd / 0.12) * -0.70;
 
-        // Eyes (very subtle — glasses-safe)
+        // Eyes
         const edL = Math.sqrt(((x - eyeLX) * 3) ** 2 + ((y - eyeY) * 6) ** 2);
         const edR = Math.sqrt(((x - eyeRX) * 3) ** 2 + ((y - eyeY) * 6) ** 2);
         const ei = Math.max(0, 1 - Math.min(edL, edR) / 0.15);
-        const eDy = ei * (y < eyeY ? -0.35 : 0.12);
+        const eDy = ei * (y < eyeY ? -0.70 : 0.20);
 
         wts[vi * 5]     = mDy;
         wts[vi * 5 + 1] = bDy;
