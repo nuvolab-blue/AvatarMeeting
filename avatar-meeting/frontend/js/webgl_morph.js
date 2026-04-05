@@ -4,26 +4,30 @@
  * VFX approach:
  *  1. Triangulate face landmarks (Delaunay) + border points → triangle mesh
  *  2. Map original avatar image as texture (UV = rest landmark positions)
- *  3. Deform vertex positions based on facial parameters (mouth, eyes, brows, head)
+ *  3. Deform vertex positions based on facial parameters
  *  4. GPU renders warped triangles with smooth barycentric interpolation
- *  5. Mouth cavity rendered via per-vertex darkness attribute
+ *  5. Mouth cavity via per-vertex darkness in fragment shader
  *
- * This produces cinema-quality morphing — no rectangular cutouts or artifacts.
+ * Coordinate convention:
+ *  - MediaPipe landmarks: x ∈ [0,1] left→right, y ∈ [0,1] top→bottom
+ *  - WebGL clip space:    x ∈ [-1,1] left→right, y ∈ [-1,1] bottom→top
+ *  - Texture (no flip):   u ∈ [0,1] left→right, v ∈ [0,1] top→bottom (matches MediaPipe)
  */
 
 // ============================================================================
-// WebGL Shaders
+// Shaders
 // ============================================================================
 const VERT_SRC = `
-attribute vec2 a_position;
-attribute vec2 a_texCoord;
+attribute vec2 a_position;   // normalized 0..1 (MediaPipe convention)
+attribute vec2 a_texCoord;   // same space
 attribute float a_cavity;
 varying vec2 v_texCoord;
 varying float v_cavity;
 void main() {
-  vec2 clip = a_position * 2.0 - 1.0;
-  clip.y = -clip.y;
-  gl_Position = vec4(clip, 0.0, 1.0);
+  // Convert MediaPipe coords to clip space
+  float cx = a_position.x * 2.0 - 1.0;   // 0..1 → -1..1
+  float cy = 1.0 - a_position.y * 2.0;    // 0..1 → 1..-1 (flip Y for GL)
+  gl_Position = vec4(cx, cy, 0.0, 1.0);
   v_texCoord = a_texCoord;
   v_cavity = a_cavity;
 }
@@ -37,22 +41,26 @@ uniform sampler2D u_image;
 uniform float u_mouthOpen;
 void main() {
   vec4 tex = texture2D(u_image, v_texCoord);
-  float dark = v_cavity * smoothstep(0.0, 0.12, u_mouthOpen);
-  vec3 cavityColor = vec3(0.05, 0.015, 0.015);
-  gl_FragColor = vec4(mix(tex.rgb, cavityColor, dark), 1.0);
+  // Darken mouth interior when open
+  float dark = v_cavity * smoothstep(0.0, 0.08, u_mouthOpen);
+  vec3 cavColor = vec3(0.04, 0.01, 0.01);
+  gl_FragColor = vec4(mix(tex.rgb, cavColor, dark), 1.0);
 }
 `;
 
 // ============================================================================
-// Landmark region definitions (MediaPipe FaceMesh 468-point indices)
+// Face landmark region indices (MediaPipe FaceMesh 468-point)
 // ============================================================================
-const UPPER_INNER_LIP = new Set([13, 82, 81, 80, 191, 312, 311, 310, 415]);
+const UPPER_INNER_LIP = new Set([13, 82, 81, 80, 191, 78, 312, 311, 310, 415, 308]);
 const LOWER_INNER_LIP = new Set([14, 87, 88, 95, 178, 317, 318, 402, 324]);
-const LIP_CORNERS     = new Set([78, 308]);
-const UPPER_OUTER_LIP = new Set([0, 37, 39, 40, 185, 61, 267, 269, 270, 409, 291]);
+const LIP_CORNERS     = new Set([61, 291]);
+const UPPER_OUTER_LIP = new Set([0, 37, 39, 40, 185, 267, 269, 270, 409]);
 const LOWER_OUTER_LIP = new Set([17, 84, 181, 91, 146, 314, 405, 321, 375]);
 
-const CHIN_SET = new Set([152, 148, 176, 149, 150, 136, 172, 58, 377, 378, 379, 365, 397, 288, 361, 323]);
+const CHIN_SET = new Set([
+  152, 148, 176, 149, 150, 136, 172, 58, 132,
+  377, 378, 379, 365, 397, 288, 361, 323, 454,
+]);
 
 const UPPER_LID_L = new Set([159, 160, 161, 246, 158, 157, 173]);
 const UPPER_LID_R = new Set([386, 385, 384, 398, 387, 388, 466]);
@@ -64,14 +72,44 @@ const BROW_R = new Set([276, 283, 282, 295, 285, 336, 296, 334, 293, 300]);
 
 const FOREHEAD = new Set([10, 109, 67, 103, 54, 21, 338, 297, 332, 284, 251]);
 
-// Border points (pinned — never deform). Normalized 0..1 coordinates.
+const NOSE_BRIDGE = new Set([6, 197, 195, 5, 4, 1, 168, 8]);
+
+// Border anchors (pinned — never deform)
 const BORDER_POINTS = [
-  {x:0,y:0},{x:.25,y:0},{x:.5,y:0},{x:.75,y:0},{x:1,y:0},
-  {x:0,y:.25},{x:1,y:.25},
-  {x:0,y:.5},{x:1,y:.5},
-  {x:0,y:.75},{x:1,y:.75},
-  {x:0,y:1},{x:.25,y:1},{x:.5,y:1},{x:.75,y:1},{x:1,y:1},
+  [0,0],[.2,0],[.4,0],[.5,0],[.6,0],[.8,0],[1,0],
+  [0,.15],[1,.15],
+  [0,.3],[1,.3],
+  [0,.5],[1,.5],
+  [0,.7],[1,.7],
+  [0,.85],[1,.85],
+  [0,1],[.2,1],[.4,1],[.5,1],[.6,1],[.8,1],[1,1],
 ];
+
+// ============================================================================
+// Per-landmark deformation weights: [mouthDy, browDy, eyeDy, headW, cavityW]
+// ============================================================================
+function landmarkWeights(idx) {
+  // Inner lip — moves most (mouth opening)
+  if (UPPER_INNER_LIP.has(idx)) return [-0.55,  0,    0,   0.8, 0.95];
+  if (LOWER_INNER_LIP.has(idx)) return [ 1.0,   0,    0,   0.8, 0.95];
+  if (LIP_CORNERS.has(idx))     return [ 0.05,  0,    0,   0.8, 0.4];
+  // Outer lip
+  if (UPPER_OUTER_LIP.has(idx)) return [-0.25,  0,    0,   0.8, 0.0];
+  if (LOWER_OUTER_LIP.has(idx)) return [ 0.65,  0,    0,   0.8, 0.0];
+  // Chin follows lower lip
+  if (CHIN_SET.has(idx))         return [ 0.35,  0,    0,   0.8, 0.0];
+  // Eyelids
+  if (UPPER_LID_L.has(idx) || UPPER_LID_R.has(idx)) return [0, 0, -1.0,  0.8, 0];
+  if (LOWER_LID_L.has(idx) || LOWER_LID_R.has(idx)) return [0, 0,  0.4,  0.8, 0];
+  // Brows
+  if (BROW_L.has(idx) || BROW_R.has(idx))           return [0, -1.0,  0,  0.8, 0];
+  // Forehead follows brow partially
+  if (FOREHEAD.has(idx))                              return [0, -0.4,  0,  0.8, 0];
+  // Nose stays mostly fixed
+  if (NOSE_BRIDGE.has(idx))                           return [0,  0,    0,  0.5, 0];
+  // Default face point — moves with head only
+  return [0, 0, 0, 0.7, 0];
+}
 
 // ============================================================================
 // Delaunay Triangulation (Bowyer-Watson)
@@ -81,22 +119,21 @@ function triangulate(points) {
   if (n < 3) return [];
 
   let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
-  for (let i = 0; i < n; i++) {
-    const p = points[i];
+  for (const p of points) {
     if (p.x < xmin) xmin = p.x; if (p.x > xmax) xmax = p.x;
     if (p.y < ymin) ymin = p.y; if (p.y > ymax) ymax = p.y;
   }
   const d = Math.max(xmax - xmin, ymax - ymin, 1) * 200;
   const mx = (xmin + xmax) / 2, my = (ymin + ymax) / 2;
 
-  const allPts = points.concat([
+  const all = points.concat([
     { x: mx - d, y: my - d },
     { x: mx + d, y: my - d },
     { x: mx, y: my + d },
   ]);
 
-  function cc(ia, ib, ic) {
-    const a = allPts[ia], b = allPts[ib], c = allPts[ic];
+  function circumscribe(ia, ib, ic) {
+    const a = all[ia], b = all[ib], c = all[ic];
     const D = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
     if (Math.abs(D) < 1e-12) return { cx: 0, cy: 0, r2: 1e18 };
     const a2 = a.x * a.x + a.y * a.y;
@@ -108,10 +145,10 @@ function triangulate(points) {
     return { cx: ux, cy: uy, r2: ex * ex + ey * ey };
   }
 
-  let tris = [{ v: [n, n + 1, n + 2], cc: cc(n, n + 1, n + 2) }];
+  let tris = [{ v: [n, n + 1, n + 2], cc: circumscribe(n, n + 1, n + 2) }];
 
   for (let i = 0; i < n; i++) {
-    const p = allPts[i];
+    const p = all[i];
     const bad = [];
     for (let j = 0; j < tris.length; j++) {
       const c = tris[j].cc;
@@ -136,12 +173,10 @@ function triangulate(points) {
       if (!shared) boundary.push(edges[e]);
     }
 
-    const sorted = bad.slice().sort((a, b) => b - a);
-    for (const j of sorted) tris.splice(j, 1);
+    for (let j = bad.length - 1; j >= 0; j--) tris.splice(bad[j], 1);
 
     for (const [a, b] of boundary) {
-      const c0 = cc(a, b, i);
-      tris.push({ v: [a, b, i], cc: c0 });
+      tris.push({ v: [a, b, i], cc: circumscribe(a, b, i) });
     }
   }
 
@@ -149,25 +184,7 @@ function triangulate(points) {
 }
 
 // ============================================================================
-// Deformation weight assignment
-// ============================================================================
-// Returns [mouthDy, browDy, eyeDy, headW, cavityW] for a face landmark index
-function landmarkWeights(idx) {
-  if (UPPER_INNER_LIP.has(idx)) return [-0.40, 0, 0, 1, 1.0];
-  if (LOWER_INNER_LIP.has(idx)) return [ 0.70, 0, 0, 1, 1.0];
-  if (LIP_CORNERS.has(idx))     return [ 0.02, 0, 0, 1, 0.5];
-  if (UPPER_OUTER_LIP.has(idx)) return [-0.18, 0, 0, 1, 0.0];
-  if (LOWER_OUTER_LIP.has(idx)) return [ 0.50, 0, 0, 1, 0.0];
-  if (CHIN_SET.has(idx))         return [ 0.22, 0, 0, 1, 0.0];
-  if (UPPER_LID_L.has(idx) || UPPER_LID_R.has(idx)) return [0, 0, -1.0, 1, 0];
-  if (LOWER_LID_L.has(idx) || LOWER_LID_R.has(idx)) return [0, 0,  0.35, 1, 0];
-  if (BROW_L.has(idx) || BROW_R.has(idx))           return [0, -1.0, 0, 1, 0];
-  if (FOREHEAD.has(idx))                              return [0, -0.3, 0, 1, 0];
-  return [0, 0, 0, 1, 0]; // default face landmark: head-only
-}
-
-// ============================================================================
-// WebGLMorph class
+// WebGLMorph
 // ============================================================================
 class WebGLMorph {
   constructor() {
@@ -189,11 +206,11 @@ class WebGLMorph {
 
     this._numVerts = 0;
     this._numIndices = 0;
-    this._numLandmarks = 0; // face landmarks count (rest are border)
+    this._numDeform = 0; // vertices that can deform
 
-    this._restPos = null;   // Float32Array [x0,y0, x1,y1,...] normalized 0..1
-    this._curPos = null;    // Float32Array (mutated each frame)
-    this._weights = null;   // Float32Array [mouthDy,browDy,eyeDy,headW,cavW,...] per landmark
+    this._restPos = null;
+    this._curPos = null;
+    this._weights = null;
 
     this._ready = false;
   }
@@ -202,9 +219,8 @@ class WebGLMorph {
   get isReady() { return this._ready; }
 
   /**
-   * Initialize WebGL, build mesh, upload texture.
    * @param {HTMLImageElement} image
-   * @param {Array|null} landmarks - 468 MediaPipe FaceMesh landmarks (normalized 0..1)
+   * @param {Array|null} landmarks
    * @returns {boolean}
    */
   init(image, landmarks) {
@@ -219,76 +235,78 @@ class WebGLMorph {
       antialias: true,
       preserveDrawingBuffer: true,
     });
-    if (!gl) { console.error('[WebGLMorph] No WebGL'); return false; }
+    if (!gl) { console.error('[Morph] No WebGL'); return false; }
     this._gl = gl;
 
-    this._program = this._buildProgram(VERT_SRC, FRAG_SRC);
+    this._program = this._compile(VERT_SRC, FRAG_SRC);
     if (!this._program) return false;
 
     gl.useProgram(this._program);
-    this._aPosition = gl.getAttribLocation(this._program, 'a_position');
-    this._aTexCoord = gl.getAttribLocation(this._program, 'a_texCoord');
-    this._aCavity   = gl.getAttribLocation(this._program, 'a_cavity');
-    this._uImage    = gl.getUniformLocation(this._program, 'u_image');
+    this._aPosition  = gl.getAttribLocation(this._program, 'a_position');
+    this._aTexCoord  = gl.getAttribLocation(this._program, 'a_texCoord');
+    this._aCavity    = gl.getAttribLocation(this._program, 'a_cavity');
+    this._uImage     = gl.getUniformLocation(this._program, 'u_image');
     this._uMouthOpen = gl.getUniformLocation(this._program, 'u_mouthOpen');
 
-    this._texture = this._uploadTexture(image);
+    this._texture = this._uploadTex(image);
 
     if (landmarks && landmarks.length >= 468) {
-      this._buildLandmarkMesh(landmarks);
+      this._buildFromLandmarks(landmarks);
     } else {
-      this._buildGridMesh();
+      this._buildGrid();
     }
 
     gl.viewport(0, 0, w, h);
     gl.clearColor(0, 0, 0, 1);
-
     this._ready = true;
-    console.log('[WebGLMorph] Ready: %d verts, %d tris', this._numVerts, this._numIndices / 3);
+
+    console.log('[Morph] Ready: %d verts, %d tris, %d deformable',
+      this._numVerts, this._numIndices / 3, this._numDeform);
     return true;
   }
 
   /**
-   * Render with deformation applied.
+   * Render with deformation.
    * @param {object} p
    * @param {number} p.mouthOpen  0..1
    * @param {number} p.browRaise  0..1
    * @param {number} p.eyeWide   -0.5..0.5
-   * @param {number} p.headX      normalized shift
-   * @param {number} p.headY      normalized shift
+   * @param {number} p.headX      normalised shift
+   * @param {number} p.headY      normalised shift
    */
   render(p) {
     if (!this._ready) return;
     const gl = this._gl;
 
-    // Reset positions to rest
+    // Reset to rest positions
     this._curPos.set(this._restPos);
 
-    const h = this._canvas.height;
-    const mouthPx = (p.mouthOpen || 0) * h * 0.07;
-    const browPx  = (p.browRaise || 0) * h * 0.025;
-    const eyePx   = (p.eyeWide || 0) * h * 0.018;
+    // Deformation amounts in normalised coords (0..1 space)
+    // These are the KEY multipliers that determine visible deformation
+    const mouth = (p.mouthOpen || 0) * 0.08;  // max 8% of image height
+    const brow  = (p.browRaise || 0) * 0.03;  // max 3%
+    const eye   = (p.eyeWide   || 0) * 0.025; // max 2.5%
     const hx = p.headX || 0;
     const hy = p.headY || 0;
 
-    // Apply deformation to each face landmark vertex
     const wt = this._weights;
     const pos = this._curPos;
-    const nLm = this._numLandmarks;
+    const nd = this._numDeform;
 
-    for (let i = 0; i < nLm; i++) {
+    for (let i = 0; i < nd; i++) {
       const wi = i * 5;
-      const mDy = wt[wi];
-      const bDy = wt[wi + 1];
-      const eDy = wt[wi + 2];
-      const hW  = wt[wi + 3];
-
       const pi = i * 2;
-      pos[pi]     += hx * hW;
-      pos[pi + 1] += (mDy * mouthPx + bDy * browPx + eDy * eyePx) / h + hy * hW;
+
+      // Y deformation: mouth + brow + eye (positive = downward in MediaPipe coords)
+      pos[pi + 1] += wt[wi] * mouth + wt[wi + 1] * brow + wt[wi + 2] * eye;
+
+      // X/Y shift from head pose
+      const hw = wt[wi + 3];
+      pos[pi]     += hx * hw;
+      pos[pi + 1] += hy * hw;
     }
 
-    // Upload deformed positions
+    // Upload
     gl.bindBuffer(gl.ARRAY_BUFFER, this._posBuf);
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, pos);
 
@@ -318,255 +336,204 @@ class WebGLMorph {
   }
 
   // ==========================================================================
-  // Private: mesh building
+  // Mesh building
   // ==========================================================================
 
-  /** Build mesh from 468 FaceMesh landmarks + border points. */
-  _buildLandmarkMesh(landmarks) {
+  _buildFromLandmarks(lm) {
     const gl = this._gl;
     const pts = [];
-    const weights = [];
+    const wts = [];
 
-    // Add 468 face landmarks
     for (let i = 0; i < 468; i++) {
-      pts.push({ x: landmarks[i].x, y: landmarks[i].y });
-      weights.push(...landmarkWeights(i));
-    }
-    this._numLandmarks = 468;
-
-    // Add border points (pinned: all weights = 0)
-    for (const bp of BORDER_POINTS) {
-      pts.push({ x: bp.x, y: bp.y });
-      weights.push(0, 0, 0, 0, 0);
+      pts.push({ x: lm[i].x, y: lm[i].y });
+      wts.push(...landmarkWeights(i));
     }
 
-    // Deduplicate very close points
-    const { mergedPts, indexMap } = this._dedup(pts, 0.002);
-
-    // Delaunay triangulate
-    const rawTris = triangulate(mergedPts);
-
-    // Build vertex/index arrays (use merged points)
-    const numV = mergedPts.length;
-    const restPos = new Float32Array(numV * 2);
-    const texCoords = new Float32Array(numV * 2);
-    const cavity = new Float32Array(numV);
-    const mergedWeights = new Float32Array(numV * 5);
-
-    for (let i = 0; i < numV; i++) {
-      restPos[i * 2] = mergedPts[i].x;
-      restPos[i * 2 + 1] = mergedPts[i].y;
-      texCoords[i * 2] = mergedPts[i].x;
-      texCoords[i * 2 + 1] = mergedPts[i].y;
+    // Add border anchors
+    for (const [bx, by] of BORDER_POINTS) {
+      pts.push({ x: bx, y: by });
+      wts.push(0, 0, 0, 0, 0);
     }
 
-    // Map weights from original to merged indices
+    const { merged, map } = this._dedup(pts, 0.003);
+    const rawTris = triangulate(merged);
+
+    const nv = merged.length;
+    const rest = new Float32Array(nv * 2);
+    const tex  = new Float32Array(nv * 2);
+    const cav  = new Float32Array(nv);
+    const mw   = new Float32Array(nv * 5);
+
+    for (let i = 0; i < nv; i++) {
+      rest[i * 2]     = merged[i].x;
+      rest[i * 2 + 1] = merged[i].y;
+      tex[i * 2]      = merged[i].x;
+      tex[i * 2 + 1]  = merged[i].y;
+    }
+
     for (let i = 0; i < pts.length; i++) {
-      const mi = indexMap[i];
+      const mi = map[i];
       const si = i * 5, di = mi * 5;
-      // Keep the first mapping (landmark weights take priority over border)
-      if (i < 468 || mergedWeights[di + 3] === 0) {
-        for (let k = 0; k < 5; k++) mergedWeights[di + k] = weights[si + k];
+      if (i < 468 || mw[di + 3] === 0) {
+        for (let k = 0; k < 5; k++) mw[di + k] = wts[si + k];
       }
-      cavity[mi] = Math.max(cavity[mi], weights[si + 4]);
+      cav[mi] = Math.max(cav[mi], wts[si + 4]);
     }
 
-    // Index buffer
-    const indices = new Uint16Array(rawTris.length * 3);
-    let idx = 0;
-    for (const [a, b, c] of rawTris) {
-      indices[idx++] = a;
-      indices[idx++] = b;
-      indices[idx++] = c;
-    }
+    const idx = new Uint16Array(rawTris.length * 3);
+    let ii = 0;
+    for (const [a, b, c] of rawTris) { idx[ii++] = a; idx[ii++] = b; idx[ii++] = c; }
 
-    // Store
-    this._numVerts = numV;
-    this._numIndices = indices.length;
-    this._restPos = restPos;
-    this._curPos = new Float32Array(restPos);
-    this._weights = mergedWeights;
-    // Update numLandmarks to account for merged points
-    this._numLandmarks = numV - BORDER_POINTS.length;
+    this._numVerts = nv;
+    this._numIndices = idx.length;
+    this._numDeform = nv; // all can deform (border weights = 0 keep them pinned)
+    this._restPos = rest;
+    this._curPos = new Float32Array(rest);
+    this._weights = mw;
 
-    // Create GPU buffers
-    this._posBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this._posBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, restPos, gl.DYNAMIC_DRAW);
-
-    this._texBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this._texBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, texCoords, gl.STATIC_DRAW);
-
-    this._cavBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this._cavBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, cavity, gl.STATIC_DRAW);
-
-    this._idxBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this._idxBuf);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+    this._posBuf = this._makeBuf(gl.ARRAY_BUFFER, rest, gl.DYNAMIC_DRAW);
+    this._texBuf = this._makeBuf(gl.ARRAY_BUFFER, tex, gl.STATIC_DRAW);
+    this._cavBuf = this._makeBuf(gl.ARRAY_BUFFER, cav, gl.STATIC_DRAW);
+    this._idxBuf = this._makeBuf(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
   }
 
-  /** Build a regular grid mesh as fallback (no landmarks). */
-  _buildGridMesh() {
+  _buildGrid() {
     const gl = this._gl;
-    const cols = 32, rows = 40;
-    const numV = (cols + 1) * (rows + 1);
-    const restPos = new Float32Array(numV * 2);
-    const texCoords = new Float32Array(numV * 2);
-    const cavity = new Float32Array(numV);
-    const weights = new Float32Array(numV * 5);
+    const cols = 30, rows = 40;
+    const nv = (cols + 1) * (rows + 1);
+    const rest = new Float32Array(nv * 2);
+    const tex  = new Float32Array(nv * 2);
+    const cav  = new Float32Array(nv);
+    const wts  = new Float32Array(nv * 5);
 
-    // Estimated face geometry (portrait photo)
-    const faceCX = 0.5, faceCY = 0.45, faceR = 0.28;
-    const mouthCX = 0.5, mouthCY = 0.62, mouthR = 0.10;
-    const browCY = 0.32, browR = 0.15;
-    const eyeLX = 0.38, eyeRX = 0.62, eyeCY = 0.40, eyeR = 0.06;
+    // Approximate face feature positions (centered portrait)
+    const cx = 0.5, mouthY = 0.62, browY = 0.32, eyeY = 0.40;
+    const eyeLX = 0.38, eyeRX = 0.62;
 
     let vi = 0;
     for (let r = 0; r <= rows; r++) {
       for (let c = 0; c <= cols; c++) {
-        const nx = c / cols, ny = r / rows;
-        restPos[vi * 2] = nx;
-        restPos[vi * 2 + 1] = ny;
-        texCoords[vi * 2] = nx;
-        texCoords[vi * 2 + 1] = ny;
+        const x = c / cols, y = r / rows;
+        rest[vi * 2] = x;
+        rest[vi * 2 + 1] = y;
+        tex[vi * 2] = x;
+        tex[vi * 2 + 1] = y;
 
-        // Compute weights based on proximity to face features
-        const faceDist = Math.sqrt((nx - faceCX) ** 2 + (ny - faceCY) ** 2);
-        const headW = Math.max(0, 1 - faceDist / (faceR * 1.3));
+        // Face proximity
+        const fd = Math.sqrt((x - cx) ** 2 + ((y - 0.45) * 1.2) ** 2);
+        const headW = Math.max(0, 1 - fd / 0.35);
 
-        const mouthDist = Math.sqrt((nx - mouthCX) ** 2 + ((ny - mouthCY) * 1.5) ** 2);
-        const mouthInf = Math.max(0, 1 - mouthDist / mouthR);
-        const mouthDy = mouthInf * (ny > mouthCY ? 0.6 : -0.35);
-        const cavW = mouthDist < mouthR * 0.5 ? mouthInf : 0;
+        // Mouth influence
+        const md = Math.sqrt((x - cx) ** 2 + ((y - mouthY) * 1.8) ** 2);
+        const mi = Math.max(0, 1 - md / 0.12);
+        const mDy = mi * (y > mouthY ? 0.9 : -0.5);
+        const cv = md < 0.06 ? mi : 0;
 
-        const browDist = Math.sqrt((nx - faceCX) ** 2 + ((ny - browCY) * 2) ** 2);
-        const browDy = Math.max(0, 1 - browDist / browR) * -1.0;
+        // Brow
+        const bd = Math.sqrt((x - cx) ** 2 + ((y - browY) * 2.5) ** 2);
+        const bDy = Math.max(0, 1 - bd / 0.15) * -1.0;
 
-        const eyeDistL = Math.sqrt(((nx - eyeLX) * 2) ** 2 + ((ny - eyeCY) * 4) ** 2);
-        const eyeDistR = Math.sqrt(((nx - eyeRX) * 2) ** 2 + ((ny - eyeCY) * 4) ** 2);
-        const eyeDist = Math.min(eyeDistL, eyeDistR);
-        const eyeInf = Math.max(0, 1 - eyeDist / (eyeR * 3));
-        const eyeDy = eyeInf * (ny < eyeCY ? -0.8 : 0.3);
+        // Eyes
+        const edL = Math.sqrt(((x - eyeLX) * 2.5) ** 2 + ((y - eyeY) * 5) ** 2);
+        const edR = Math.sqrt(((x - eyeRX) * 2.5) ** 2 + ((y - eyeY) * 5) ** 2);
+        const ei = Math.max(0, 1 - Math.min(edL, edR) / 0.2);
+        const eDy = ei * (y < eyeY ? -1.0 : 0.4);
 
-        weights[vi * 5]     = mouthDy;
-        weights[vi * 5 + 1] = browDy;
-        weights[vi * 5 + 2] = eyeDy;
-        weights[vi * 5 + 3] = headW;
-        weights[vi * 5 + 4] = cavW;
-        cavity[vi] = cavW;
-
+        wts[vi * 5]     = mDy;
+        wts[vi * 5 + 1] = bDy;
+        wts[vi * 5 + 2] = eDy;
+        wts[vi * 5 + 3] = headW;
+        wts[vi * 5 + 4] = cv;
+        cav[vi] = cv;
         vi++;
       }
     }
 
-    // Grid triangulation
-    const numTris = cols * rows * 2;
-    const indices = new Uint16Array(numTris * 3);
+    const numT = cols * rows * 2;
+    const idx = new Uint16Array(numT * 3);
     let ii = 0;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const tl = r * (cols + 1) + c;
-        const tr = tl + 1;
-        const bl = tl + (cols + 1);
-        const br = bl + 1;
-        indices[ii++] = tl; indices[ii++] = bl; indices[ii++] = tr;
-        indices[ii++] = tr; indices[ii++] = bl; indices[ii++] = br;
+        const tl = r * (cols + 1) + c, tr = tl + 1;
+        const bl = tl + cols + 1, br = bl + 1;
+        idx[ii++] = tl; idx[ii++] = bl; idx[ii++] = tr;
+        idx[ii++] = tr; idx[ii++] = bl; idx[ii++] = br;
       }
     }
 
-    this._numVerts = numV;
-    this._numLandmarks = numV; // all grid vertices can deform
-    this._numIndices = indices.length;
-    this._restPos = restPos;
-    this._curPos = new Float32Array(restPos);
-    this._weights = weights;
+    this._numVerts = nv;
+    this._numDeform = nv;
+    this._numIndices = idx.length;
+    this._restPos = rest;
+    this._curPos = new Float32Array(rest);
+    this._weights = wts;
 
-    this._posBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this._posBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, restPos, gl.DYNAMIC_DRAW);
-
-    this._texBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this._texBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, texCoords, gl.STATIC_DRAW);
-
-    this._cavBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this._cavBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, cavity, gl.STATIC_DRAW);
-
-    this._idxBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this._idxBuf);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+    this._posBuf = this._makeBuf(gl.ARRAY_BUFFER, rest, gl.DYNAMIC_DRAW);
+    this._texBuf = this._makeBuf(gl.ARRAY_BUFFER, tex, gl.STATIC_DRAW);
+    this._cavBuf = this._makeBuf(gl.ARRAY_BUFFER, cav, gl.STATIC_DRAW);
+    this._idxBuf = this._makeBuf(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
   }
 
   // ==========================================================================
-  // Private: utilities
+  // Utilities
   // ==========================================================================
 
-  /** Merge points closer than minDist. */
-  _dedup(points, minDist) {
-    const mergedPts = [];
-    const indexMap = new Array(points.length);
-    const md2 = minDist * minDist;
-
-    for (let i = 0; i < points.length; i++) {
-      let found = -1;
-      for (let j = 0; j < mergedPts.length; j++) {
-        const dx = points[i].x - mergedPts[j].x;
-        const dy = points[i].y - mergedPts[j].y;
-        if (dx * dx + dy * dy < md2) { found = j; break; }
+  _dedup(pts, minD) {
+    const merged = [];
+    const map = new Array(pts.length);
+    const md2 = minD * minD;
+    for (let i = 0; i < pts.length; i++) {
+      let f = -1;
+      for (let j = 0; j < merged.length; j++) {
+        const dx = pts[i].x - merged[j].x, dy = pts[i].y - merged[j].y;
+        if (dx * dx + dy * dy < md2) { f = j; break; }
       }
-      if (found >= 0) {
-        indexMap[i] = found;
-      } else {
-        indexMap[i] = mergedPts.length;
-        mergedPts.push({ x: points[i].x, y: points[i].y });
-      }
+      if (f >= 0) { map[i] = f; }
+      else { map[i] = merged.length; merged.push({ x: pts[i].x, y: pts[i].y }); }
     }
-    return { mergedPts, indexMap };
+    return { merged, map };
   }
 
-  /** Compile and link shader program. */
-  _buildProgram(vsSrc, fsSrc) {
+  _makeBuf(target, data, usage) {
+    const gl = this._gl;
+    const buf = gl.createBuffer();
+    gl.bindBuffer(target, buf);
+    gl.bufferData(target, data, usage);
+    return buf;
+  }
+
+  _compile(vSrc, fSrc) {
     const gl = this._gl;
     const vs = gl.createShader(gl.VERTEX_SHADER);
-    gl.shaderSource(vs, vsSrc);
-    gl.compileShader(vs);
+    gl.shaderSource(vs, vSrc); gl.compileShader(vs);
     if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS)) {
-      console.error('[WebGLMorph] VS:', gl.getShaderInfoLog(vs));
-      return null;
+      console.error('[Morph] VS:', gl.getShaderInfoLog(vs)); return null;
     }
     const fs = gl.createShader(gl.FRAGMENT_SHADER);
-    gl.shaderSource(fs, fsSrc);
-    gl.compileShader(fs);
+    gl.shaderSource(fs, fSrc); gl.compileShader(fs);
     if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
-      console.error('[WebGLMorph] FS:', gl.getShaderInfoLog(fs));
-      return null;
+      console.error('[Morph] FS:', gl.getShaderInfoLog(fs)); return null;
     }
-    const prog = gl.createProgram();
-    gl.attachShader(prog, vs);
-    gl.attachShader(prog, fs);
-    gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-      console.error('[WebGLMorph] Link:', gl.getProgramInfoLog(prog));
-      return null;
+    const p = gl.createProgram();
+    gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      console.error('[Morph] Link:', gl.getProgramInfoLog(p)); return null;
     }
-    return prog;
+    return p;
   }
 
-  /** Upload image as WebGL texture. */
-  _uploadTexture(image) {
+  _uploadTex(image) {
     const gl = this._gl;
-    const tex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    // NO FLIP — MediaPipe y=0 is top, texture v=0 is also top row
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    return tex;
+    return t;
   }
 }
 

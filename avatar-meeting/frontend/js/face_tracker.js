@@ -213,13 +213,13 @@ class FaceTracker {
     const rawEye = Math.abs(leftEyeUpper.y - leftEyeLower.y) / faceH;
 
     // Calibration phase: collect baseline samples
-    if (this._calibFrames < 30) {
+    if (this._calibFrames < 15) {
       this._calibSamples.mouth.push(rawMouth);
       this._calibSamples.brow.push(rawBrow);
       this._calibSamples.eye.push(rawEye);
       this._calibFrames++;
 
-      if (this._calibFrames === 30) {
+      if (this._calibFrames === 15) {
         // Use median as baseline (robust to outliers)
         this._baseline = {
           mouth: this._median(this._calibSamples.mouth),
@@ -237,19 +237,17 @@ class FaceTracker {
     const bl = this._baseline;
 
     // Mouth: how much wider than baseline (closed mouth)
-    // Typical range: baseline +0 (closed) to +0.08 (wide open)
-    const mouthDelta = rawMouth - bl.mouth;
-    const mouthOpen = this._clamp(mouthDelta / (bl.mouth * 2.5), 0, 1);
+    // rawMouth for closed ~0.01-0.02, open ~0.06-0.10 (relative to face height)
+    const mouthDelta = Math.max(0, rawMouth - bl.mouth);
+    const mouthOpen = this._clamp(mouthDelta / 0.04, 0, 1);
 
     // Brow: how much higher than baseline
-    // browDist increases when brows are raised (brow moves away from eye)
-    const browDelta = rawBrow - bl.brow;
-    const browRaise = this._clamp(browDelta / (bl.brow * 0.6), 0, 1);
+    const browDelta = Math.max(0, rawBrow - bl.brow);
+    const browRaise = this._clamp(browDelta / 0.025, 0, 1);
 
-    // Eye: ratio relative to baseline (0.5 = neutral)
+    // Eye: ratio relative to baseline (0.5 = neutral, 0 = closed, 1 = wide)
     const eyeRatio = bl.eye > 0.001 ? rawEye / bl.eye : 1;
-    // eyeRatio ~1.0 = normal, <0.5 = squinting, >1.3 = wide
-    const eyeOpen = this._clamp(eyeRatio * 0.5, 0, 1);
+    const eyeOpen = this._clamp((eyeRatio - 0.3) / 1.4, 0, 1);
 
     // Smooth features
     this._smoothMouthOpen = this._ema(this._smoothMouthOpen, mouthOpen, 0.4);

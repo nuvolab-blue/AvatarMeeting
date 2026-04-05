@@ -1,9 +1,13 @@
 /**
- * @fileoverview Face deformation controller.
+ * @fileoverview Face deformation controller with idle animation.
  *
- * Detects face landmarks on the avatar image via MediaPipe FaceMesh,
- * then delegates rendering to WebGLMorph for GPU-accelerated mesh warping.
- * Handles audio → mouth, camera → eyes/brows/mouth, and head pose.
+ * Manages:
+ *  - Audio RMS → mouth opening
+ *  - Camera facial features → eyes, brows, mouth
+ *  - Head pose → subtle translation
+ *  - Idle animation → periodic blinks + micro-breathing for lifelike look
+ *
+ * Delegates actual rendering to WebGLMorph (GPU mesh warping).
  */
 
 import WebGLMorph from './webgl_morph.js';
@@ -14,66 +18,57 @@ class LipSyncLocal {
     /** @private */ this._ready = false;
     /** @private */ this._useCameraFeatures = false;
 
-    // Face geometry for head-pose scaling
-    /** @private */ this._faceHeight = 0;
-
-    // Smoothed animation values
+    // Smoothed current values
     /** @private */ this._mouthOpen = 0;
     /** @private */ this._browRaise = 0;
     /** @private */ this._eyeWide = 0;
     /** @private */ this._headX = 0;
     /** @private */ this._headY = 0;
 
-    // Animation targets
+    // Targets
     /** @private */ this._tMouth = 0;
     /** @private */ this._tBrow = 0;
     /** @private */ this._tEye = 0;
     /** @private */ this._tHeadX = 0;
     /** @private */ this._tHeadY = 0;
 
-    /** @private */ this._alpha = 0.28; // smoothing factor
+    /** @private */ this._alpha = 0.30; // smoothing
+
+    // Idle animation state
+    /** @private */ this._idleBlink = 0;      // 0..1 blink amount
+    /** @private */ this._nextBlinkTime = 0;
+    /** @private */ this._blinkPhase = 0;      // 0=waiting, 1=closing, 2=opening
+    /** @private */ this._startTime = 0;
   }
 
   /**
-   * Initialise: detect face, build WebGL mesh.
    * @param {HTMLImageElement} avatarImage
    * @returns {Promise<boolean>}
    */
   async init(avatarImage) {
-    const h = avatarImage.naturalHeight || avatarImage.height;
-
-    // Detect face landmarks
     const landmarks = await this._detectFace(avatarImage);
-    if (landmarks) {
-      const forehead = landmarks[10], chin = landmarks[152];
-      this._faceHeight = (chin.y - forehead.y) * h;
-    } else {
-      this._faceHeight = h * 0.55;
-    }
-
-    // Build WebGL morph mesh
     const ok = this._morph.init(avatarImage, landmarks);
-    if (!ok) {
-      console.warn('[LipSync] WebGL morph init failed');
-      return false;
-    }
+    if (!ok) return false;
 
     this._ready = true;
-    console.log('[LipSync] Ready (faceH=%d)', Math.round(this._faceHeight));
+    this._startTime = performance.now();
+    this._nextBlinkTime = this._startTime + 2000 + Math.random() * 3000;
+    console.log('[LipSync] Morph engine ready');
     return true;
   }
 
-  /** @returns {boolean} */
   get isReady() { return this._ready; }
 
   /**
-   * Set mouth open from audio RMS.
+   * Audio RMS → mouth opening.
    * @param {number} rms 0..1
    */
   setAudioAmplitude(rms) {
-    const t = 0.008;
-    const mapped = rms < t ? 0 : Math.min(1, (rms - t) * 6);
-    const audioMouth = Math.pow(mapped, 1.5);
+    // Very sensitive threshold for detecting speech
+    const t = 0.005;
+    const mapped = rms < t ? 0 : Math.min(1, (rms - t) * 5);
+    const audioMouth = Math.pow(mapped, 1.2);
+
     if (this._useCameraFeatures) {
       this._tMouth = Math.max(audioMouth, this._tMouth);
     } else {
@@ -82,7 +77,7 @@ class LipSyncLocal {
   }
 
   /**
-   * Set facial features from camera.
+   * Camera facial features → deformation targets.
    * @param {{mouthOpen:number, browRaise:number, eyeOpen:number}} f
    */
   setFacialFeatures(f) {
@@ -93,56 +88,106 @@ class LipSyncLocal {
   }
 
   /**
-   * Set head pose (translation only).
+   * Head pose → translation shift.
    * @param {number} yaw degrees
    * @param {number} pitch degrees
    */
   setHeadPose(yaw, pitch) {
-    const maxShift = 0.03; // normalised to image width/height
-    this._tHeadX = -(yaw / 45) * maxShift;
-    this._tHeadY = (pitch / 45) * maxShift * 0.5;
+    this._tHeadX = -(yaw / 45) * 0.025;
+    this._tHeadY = (pitch / 45) * 0.012;
   }
 
   /**
-   * Render deformed avatar onto the 2D target canvas.
-   * @param {CanvasRenderingContext2D} targetCtx
+   * Render deformed avatar.
+   * @param {CanvasRenderingContext2D} ctx
    * @param {number} dx
    * @param {number} dy
    * @param {number} dw
    * @param {number} dh
    */
-  render(targetCtx, dx, dy, dw, dh) {
+  render(ctx, dx, dy, dw, dh) {
     if (!this._ready) return;
 
-    // Smooth animation
+    const now = performance.now();
+
+    // === Idle Animation ===
+    this._updateBlink(now);
+    const breathe = Math.sin(now * 0.002) * 0.003; // subtle vertical oscillation
+
+    // === Smooth animation ===
     const a = this._alpha;
     this._mouthOpen += (this._tMouth - this._mouthOpen) * a;
     this._browRaise += (this._tBrow - this._browRaise) * a;
-    this._eyeWide   += (this._tEye - this._eyeWide) * a;
     this._headX     += (this._tHeadX - this._headX) * a;
     this._headY     += (this._tHeadY - this._headY) * a;
 
-    // Reset camera-driven targets
+    // Eye: blend camera input with idle blink
+    let eyeTarget = this._tEye;
+    if (this._idleBlink > 0 && !this._useCameraFeatures) {
+      // Blink overrides eye openness: -0.5 = fully closed
+      eyeTarget = -this._idleBlink * 0.5;
+    } else if (this._useCameraFeatures && this._idleBlink > 0.3) {
+      // Even with camera, add subtle blink influence
+      eyeTarget = Math.min(eyeTarget, -this._idleBlink * 0.3);
+    }
+    this._eyeWide += (eyeTarget - this._eyeWide) * (a * 1.5); // faster for blink
+
+    // Reset camera-driven mouth (camera will re-set each frame)
     if (this._useCameraFeatures) this._tMouth = 0;
 
-    // GPU render
+    // === GPU render ===
     this._morph.render({
       mouthOpen: this._mouthOpen,
       browRaise: this._browRaise,
       eyeWide: this._eyeWide,
       headX: this._headX,
-      headY: this._headY,
+      headY: this._headY + breathe,
     });
 
-    // Draw WebGL result onto 2D canvas
-    targetCtx.drawImage(this._morph.canvas, dx, dy, dw, dh);
+    // Draw WebGL canvas onto 2D display canvas
+    ctx.drawImage(this._morph.canvas, dx, dy, dw, dh);
   }
 
-  // ===========================================================================
-  // Private: FaceMesh detection
-  // ===========================================================================
+  // ==========================================================================
+  // Private: idle animation
+  // ==========================================================================
 
-  /** @private */
+  _updateBlink(now) {
+    const blinkDuration = 150; // ms for full close
+    const openDuration = 120;  // ms for full open
+
+    if (this._blinkPhase === 0) {
+      // Waiting for next blink
+      if (now >= this._nextBlinkTime) {
+        this._blinkPhase = 1;
+        this._blinkStart = now;
+      }
+    } else if (this._blinkPhase === 1) {
+      // Closing
+      const t = (now - this._blinkStart) / blinkDuration;
+      this._idleBlink = Math.min(1, t);
+      if (t >= 1) {
+        this._blinkPhase = 2;
+        this._blinkStart = now;
+      }
+    } else if (this._blinkPhase === 2) {
+      // Opening
+      const t = (now - this._blinkStart) / openDuration;
+      this._idleBlink = Math.max(0, 1 - t);
+      if (t >= 1) {
+        this._idleBlink = 0;
+        this._blinkPhase = 0;
+        // Random interval: 2-6 seconds, occasionally double-blink
+        const doubleBlink = Math.random() < 0.2;
+        this._nextBlinkTime = now + (doubleBlink ? 200 : 2000 + Math.random() * 4000);
+      }
+    }
+  }
+
+  // ==========================================================================
+  // Private: FaceMesh detection
+  // ==========================================================================
+
   async _detectFace(img) {
     return new Promise((resolve) => {
       if (typeof FaceMesh === 'undefined') {
@@ -152,7 +197,7 @@ class LipSyncLocal {
       }
 
       const timeout = setTimeout(() => {
-        console.warn('[LipSync] FaceMesh timeout — grid fallback');
+        console.warn('[LipSync] FaceMesh timeout');
         done(null);
       }, 15000);
 
@@ -173,7 +218,7 @@ class LipSyncLocal {
         minDetectionConfidence: 0.3, minTrackingConfidence: 0.3,
       });
       fm.onResults((res) => {
-        if (res.multiFaceLandmarks && res.multiFaceLandmarks.length > 0) {
+        if (res.multiFaceLandmarks?.length > 0) {
           console.log('[LipSync] %d landmarks detected', res.multiFaceLandmarks[0].length);
           done(res.multiFaceLandmarks[0]);
         } else {
@@ -187,8 +232,8 @@ class LipSyncLocal {
         c.width = img.naturalWidth || img.width;
         c.height = img.naturalHeight || img.height;
         c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-        fm.send({ image: c }).catch((e) => { console.error('[LipSync]', e); done(null); });
-      }).catch((e) => { console.error('[LipSync]', e); done(null); });
+        fm.send({ image: c }).catch((e) => { console.error(e); done(null); });
+      }).catch((e) => { console.error(e); done(null); });
     });
   }
 }
