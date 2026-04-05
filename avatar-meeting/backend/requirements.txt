@@ -1,0 +1,10 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart
+websockets>=12.0
+aiofiles
+httpx
+Pillow
+opencv-python-headless
+numpy
+python-dotenv

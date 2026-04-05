@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Avatar Meeting Studio</title>
+  <link rel="stylesheet" href="css/style.css">
+
+  <!-- MediaPipe FaceMesh -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <h1>Avatar Meeting Studio</h1>
+    <div class="status-item">
+      <span class="status-indicator" id="status-indicator"></span>
+      <span id="status-display">待機中</span>
+    </div>
+  </header>
+
+  <!-- Main Layout -->
+  <div class="main-layout">
+
+    <!-- Left: Avatar Preview -->
+    <div class="preview-panel">
+      <div class="canvas-wrapper">
+        <canvas id="avatar-canvas" width="640" height="480"></canvas>
+        <div class="live-badge" id="live-badge">LIVE</div>
+      </div>
+
+      <!-- Status Bar -->
+      <div class="status-bar">
+        <div class="status-item">
+          <span>感情:</span>
+          <span id="emotion-display">😐 neutral</span>
+        </div>
+        <div class="status-item">
+          <span>遅延:</span>
+          <span id="latency-display">--</span>
+        </div>
+        <div class="status-item">
+          <span>FPS:</span>
+          <span id="fps-display">--</span>
+        </div>
+      </div>
+
+      <!-- Error Display -->
+      <div class="error-display" id="error-display"></div>
+
+      <!-- Hidden video for face tracker input -->
+      <video class="camera-preview" id="camera-preview" playsinline muted></video>
+    </div>
+
+    <!-- Right: Setup Panel -->
+    <div class="setup-panel">
+
+      <!-- Photo Upload -->
+      <div class="card">
+        <h3>写真を選択</h3>
+        <div class="file-input-wrapper">
+          <button class="btn secondary" id="btn-photo">写真をアップロード</button>
+          <input type="file" id="photo-input" accept="image/jpeg,image/png,image/webp">
+        </div>
+        <p>アバターに使用する正面顔写真を選択してください。</p>
+      </div>
+
+      <!-- Microphone -->
+      <div class="card">
+        <h3>マイク設定</h3>
+        <button class="btn" id="btn-mic">マイクを有効化</button>
+        <p>音声キャプチャと音声認識を開始します。</p>
+      </div>
+
+      <!-- Camera -->
+      <div class="card">
+        <h3>カメラ設定</h3>
+        <button class="btn" id="btn-camera">カメラを有効化</button>
+        <p>頭部追跡のためにカメラを使用します。</p>
+      </div>
+
+      <!-- Virtual Camera -->
+      <div class="card">
+        <h3>仮想カメラ</h3>
+        <button class="btn secondary" id="btn-virtual-camera">仮想カメラ OFF</button>
+        <p>ONにすると、アバター映像を会議アプリに送信できます。</p>
+        <div class="meet-instructions" id="meet-instructions">
+          Meetで「カメラ」→「Avatar Camera」を選択してください。
+          Slackの場合はビデオ設定からカメラソースを変更してください。
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- App Entry Point -->
+  <script type="module" src="js/app.js"></script>
+
+</body>
+</html>
