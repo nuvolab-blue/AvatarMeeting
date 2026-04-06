@@ -27,6 +27,15 @@
         "--directory", "/Users/naoyanakagawa/Desktop/AvatarMeeting/avatar-meeting-v3/frontend"
       ],
       "port": 8091
+    },
+    {
+      "name": "v4-frontend",
+      "runtimeExecutable": "/opt/homebrew/bin/python3",
+      "runtimeArgs": [
+        "-m", "http.server", "8092",
+        "--directory", "/Users/naoyanakagawa/Desktop/AvatarMeeting/avatar-meeting-v4/frontend"
+      ],
+      "port": 8092
     }
   ]
 }

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Avatar Meeting Studio v4</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <h1>Avatar Meeting Studio</h1>
+    <span class="badge">v4 WebGL + BlendShape</span>
+  </header>
+
+  <!-- Main layout -->
+  <main class="main">
+
+    <!-- Viewport -->
+    <section class="viewport">
+      <div class="canvas-wrap">
+        <canvas id="av"></canvas>
+        <div id="placeholder" class="placeholder">
+          <div class="icon">📸</div>
+          <p>顔写真をアップロードしてアバターを作成</p>
+        </div>
+        <div id="live-badge" class="live-badge">
+          <span class="live-dot"></span> LIVE
+        </div>
+        <div id="cam-pip" class="cam-pip">
+          <video id="cam-video" autoplay playsinline muted></video>
+        </div>
+      </div>
+
+      <!-- Audio visualizer -->
+      <div id="viz-wrap" class="viz-wrap"></div>
+
+      <!-- BlendShape debug bars -->
+      <div class="bs-debug" id="bs-debug">
+        <div class="bs-row"><span class="bs-label">Jaw</span><div class="bs-track"><div class="bs-bar" id="bar-jaw"></div></div></div>
+        <div class="bs-row"><span class="bs-label">Blink</span><div class="bs-track"><div class="bs-bar bar-cyan" id="bar-blink"></div></div></div>
+        <div class="bs-row"><span class="bs-label">Smile</span><div class="bs-track"><div class="bs-bar bar-green" id="bar-smile"></div></div></div>
+      </div>
+
+      <!-- Status bar -->
+      <div class="status-bar">
+        <span id="sfps">FPS:--</span>
+        <span id="semo">Em:--</span>
+        <span id="sbs">BS:--</span>
+        <span id="sjaw">Jaw:--</span>
+      </div>
+    </section>
+
+    <!-- Controls -->
+    <aside class="controls">
+
+      <!-- Upload -->
+      <div class="card">
+        <h3>📷 アバター写真</h3>
+        <div id="upload-area" class="upload-area">
+          <div class="icon">📁</div>
+          <p>クリックまたはドラッグ&ドロップ</p>
+          <img id="preview-img" alt="preview">
+        </div>
+        <input type="file" id="file-input" accept="image/*">
+      </div>
+
+      <!-- Controls -->
+      <div class="card">
+        <h3>🎛️ コントロール</h3>
+        <button id="btn-mic" class="btn" disabled>🎤 マイクを有効化</button>
+        <button id="btn-cam" class="btn" disabled>📷 カメラを有効化</button>
+        <button id="btn-vcam" class="btn" disabled>🖥️ 仮想カメラ ON</button>
+      </div>
+
+      <!-- Settings -->
+      <div class="card">
+        <h3>⚙️ 設定</h3>
+        <div class="setting-row">
+          <label for="tog-glasses">メガネ保護</label>
+          <label class="toggle"><input type="checkbox" id="tog-glasses"><span class="slider"></span></label>
+        </div>
+        <div class="setting-row">
+          <label for="tog-blink">自動まばたき</label>
+          <label class="toggle"><input type="checkbox" id="tog-blink" checked><span class="slider"></span></label>
+        </div>
+        <div class="setting-row">
+          <label for="tog-breath">呼吸</label>
+          <label class="toggle"><input type="checkbox" id="tog-breath" checked><span class="slider"></span></label>
+        </div>
+        <div class="setting-row">
+          <label for="tog-micro">マイクロ表情</label>
+          <label class="toggle"><input type="checkbox" id="tog-micro" checked><span class="slider"></span></label>
+        </div>
+      </div>
+
+      <!-- Log -->
+      <div class="card">
+        <h3>📋 ログ</h3>
+        <div id="log-box" class="log-box"></div>
+      </div>
+
+    </aside>
+  </main>
+
+  <!-- Scripts (no ES modules — global scope) -->
+  <script src="js/perlin-noise.js"></script>
+  <script src="js/audio-analyzer.js"></script>
+  <script src="js/webgl-warp.js"></script>
+  <script src="js/face-capture.js"></script>
+  <script src="js/blend-shape-driver.js"></script>
+  <script src="js/idle-animator.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/app.js"></script>
+
+</body>
+</html>
