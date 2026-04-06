@@ -86,6 +86,10 @@ class Engine {
     // Initialize BlendShape driver
     this.driver = new BlendShapeDriver(WebGLWarp.COLS, WebGLWarp.ROWS, w, h);
 
+    // ★ Detect face in avatar image to set control points
+    const faceDetected = await this.driver.detectFace(finalImg);
+    console.log(`[Engine] Face detection: ${faceDetected ? 'OK' : 'using defaults'}`);
+
     // Initial render (zero displacement)
     const zeroDisp = new Float32Array(WebGLWarp.VERTEX_COUNT * 2);
     this.warp.render(zeroDisp, 0);
