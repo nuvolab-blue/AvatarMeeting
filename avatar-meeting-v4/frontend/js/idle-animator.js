@@ -60,20 +60,21 @@ class IdleAnimator {
 
     // === Breath ===
     if (this.settings.breath) {
-      result.jawOpen = (result.jawOpen || 0) + Math.sin(t * Math.PI * 1.5) * 0.02; // 0.75Hz
-      result._pitchOffset = Math.sin(t * Math.PI * 0.8) * 0.3; // subtle head bob
+      result.jawOpen = (result.jawOpen || 0) + Math.sin(t * Math.PI * 1.5) * 0.03; // 0.75Hz
+      result._pitchOffset = Math.sin(t * Math.PI * 0.8) * 1.5; // visible head bob (degrees)
     }
 
     // === Micro-expressions (Perlin fBm) ===
     if (this.settings.micro) {
       const n = this._noise;
-      result.mouthSmileLeft = (result.mouthSmileLeft || 0) + n.fbm(t * 0.28, 0.0) * 0.015;
-      result.mouthSmileRight = (result.mouthSmileRight || 0) + n.fbm(t * 0.28, 1.0) * 0.015;
-      result.browInnerUp = (result.browInnerUp || 0) + n.fbm(t * 0.18, 2.0) * 0.01;
+      result.mouthSmileLeft = (result.mouthSmileLeft || 0) + n.fbm(t * 0.28, 0.0) * 0.03;
+      result.mouthSmileRight = (result.mouthSmileRight || 0) + n.fbm(t * 0.28, 1.0) * 0.03;
+      result.browInnerUp = (result.browInnerUp || 0) + n.fbm(t * 0.18, 2.0) * 0.02;
 
-      result._yawOffset = n.fbm(t * 0.13, 3.0) * 1.0;
-      result._pitchOffset = (result._pitchOffset || 0) + n.fbm(t * 0.10, 4.0) * 0.5;
-      result._rollOffset = n.fbm(t * 0.08, 5.0) * 0.3;
+      // ★ v4.3: Much larger head movement for visible idle animation
+      result._yawOffset = n.fbm(t * 0.13, 3.0) * 4.0;       // ±4° yaw
+      result._pitchOffset = (result._pitchOffset || 0) + n.fbm(t * 0.10, 4.0) * 2.0; // ±2° pitch
+      result._rollOffset = n.fbm(t * 0.08, 5.0) * 1.5;       // ±1.5° roll
     }
 
     return result;
