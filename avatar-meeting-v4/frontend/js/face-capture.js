@@ -2,10 +2,9 @@
  * @fileoverview MediaPipe Face Landmarker wrapper for camera-based face capture.
  *
  * Provides 52 BlendShape coefficients, 478 landmarks, and head pose
- * from the user's webcam in real-time using GPU-accelerated inference.
+ * from the user's webcam in real-time.
  *
- * This replaces v3's FaceDetector API (bounding box only) with full
- * facial expression tracking — the key architectural improvement in v4.
+ * ★ v4.1: GPU→CPU fallback, error recovery, frame skip on failure
  */
 
 class FaceCapture {
@@ -22,12 +21,17 @@ class FaceCapture {
     /** @type {Function|null} Called each frame with updated data */
     this.onUpdate = null;
 
+    /** @type {Function|null} Called on error */
+    this.onError = null;
+
     /** @private */ this._landmarker = null;
     /** @private {HTMLVideoElement|null} */ this._video = null;
     /** @private {MediaStream|null} */ this._stream = null;
     /** @private */ this._active = false;
     /** @private */ this._rafId = null;
     /** @private */ this._lastTime = -1;
+    /** @private */ this._errorCount = 0;
+    /** @private */ this._maxErrors = 30; // Stop after 30 consecutive errors
   }
 
   /** @type {boolean} */
@@ -54,38 +58,91 @@ class FaceCapture {
       this._video.muted = true;
       await this._video.play();
 
+      // Wait for video to have actual dimensions
+      await new Promise((resolve) => {
+        const check = () => {
+          if (this._video.videoWidth > 0 && this._video.videoHeight > 0) {
+            resolve();
+          } else {
+            requestAnimationFrame(check);
+          }
+        };
+        check();
+      });
+
+      console.log(`[FaceCapture] Camera ready: ${this._video.videoWidth}x${this._video.videoHeight}`);
+
       // 2. Load MediaPipe Face Landmarker
       console.log('[FaceCapture] Loading MediaPipe Face Landmarker model...');
-      const { FaceLandmarker, FilesetResolver } = await import(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22'
-      );
+
+      let FaceLandmarker, FilesetResolver;
+      try {
+        const mod = await import(
+          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22'
+        );
+        FaceLandmarker = mod.FaceLandmarker;
+        FilesetResolver = mod.FilesetResolver;
+      } catch (importErr) {
+        console.error('[FaceCapture] Failed to load MediaPipe module:', importErr);
+        if (this.onError) this.onError('MediaPipeモジュールの読み込みに失敗しました');
+        this._cleanup();
+        return false;
+      }
 
       const vision = await FilesetResolver.forVisionTasks(
         'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm'
       );
 
-      this._landmarker = await FaceLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath:
-            'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-          delegate: 'GPU',
-        },
-        runningMode: 'VIDEO',
-        numFaces: 1,
-        outputFaceBlendshapes: true,
-        outputFacialTransformationMatrixes: true,
-      });
+      // Try GPU first, fall back to CPU
+      let landmarker = null;
+      try {
+        landmarker = await FaceLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath:
+              'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+            delegate: 'GPU',
+          },
+          runningMode: 'VIDEO',
+          numFaces: 1,
+          outputFaceBlendshapes: true,
+          outputFacialTransformationMatrixes: true,
+        });
+        console.log('[FaceCapture] MediaPipe ready (GPU delegate)');
+      } catch (gpuErr) {
+        console.warn('[FaceCapture] GPU delegate failed, trying CPU:', gpuErr.message);
+        try {
+          landmarker = await FaceLandmarker.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath:
+                'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+              delegate: 'CPU',
+            },
+            runningMode: 'VIDEO',
+            numFaces: 1,
+            outputFaceBlendshapes: true,
+            outputFacialTransformationMatrixes: true,
+          });
+          console.log('[FaceCapture] MediaPipe ready (CPU delegate — slower)');
+        } catch (cpuErr) {
+          console.error('[FaceCapture] Both GPU and CPU delegate failed:', cpuErr);
+          if (this.onError) this.onError('MediaPipeの初期化に失敗しました');
+          this._cleanup();
+          return false;
+        }
+      }
 
-      console.log('[FaceCapture] MediaPipe Face Landmarker ready (GPU delegate)');
+      this._landmarker = landmarker;
 
       // 3. Start processing loop
       this._active = true;
       this._lastTime = -1;
+      this._errorCount = 0;
       this._processLoop();
 
       return true;
     } catch (err) {
       console.error('[FaceCapture] Init failed:', err);
+      if (this.onError) this.onError(err.message);
       this._cleanup();
       return false;
     }
@@ -112,15 +169,17 @@ class FaceCapture {
     this._rafId = requestAnimationFrame(() => this._processLoop());
 
     const video = this._video;
-    if (!video || video.readyState < 2) return; // HAVE_CURRENT_DATA
+    if (!video || video.readyState < 2) return;
 
     const now = performance.now();
-    // MediaPipe requires strictly increasing timestamps
     if (now <= this._lastTime) return;
     this._lastTime = now;
 
     try {
       const result = this._landmarker.detectForVideo(video, now);
+
+      // Reset error count on success
+      this._errorCount = 0;
 
       // BlendShapes
       if (result.faceBlendshapes && result.faceBlendshapes.length > 0) {
@@ -145,7 +204,15 @@ class FaceCapture {
         this.onUpdate(this.blendShapes, this.headPose, this.landmarks);
       }
     } catch (err) {
-      // Silently skip frame errors (can happen during camera init)
+      this._errorCount++;
+      if (this._errorCount <= 3) {
+        console.warn(`[FaceCapture] Frame error (${this._errorCount}):`, err.message);
+      }
+      if (this._errorCount >= this._maxErrors) {
+        console.error('[FaceCapture] Too many errors, stopping');
+        if (this.onError) this.onError('カメラ処理でエラーが多発しました');
+        this._active = false;
+      }
     }
   }
 
@@ -156,15 +223,10 @@ class FaceCapture {
    * @returns {{yaw: number, pitch: number, roll: number}} degrees
    */
   _extractPose(m) {
-    // Column-major 4x4: m[0..3] = col0, m[4..7] = col1, etc.
-    // Row-major access: M[row][col] = m[col*4 + row]
-    const r00 = m[0], r01 = m[4], r02 = m[8];
-    const r10 = m[1], r11 = m[5], r12 = m[9];
-    const r20 = m[2], r21 = m[6], r22 = m[10];
+    const r00 = m[0], r10 = m[1], r20 = m[2];
+    const r21 = m[6], r22 = m[10];
 
     const toDeg = 180 / Math.PI;
-
-    // Euler angles (XYZ convention)
     const pitch = Math.asin(-Math.max(-1, Math.min(1, r20))) * toDeg;
     const yaw = Math.atan2(r10, r00) * toDeg;
     const roll = Math.atan2(r21, r22) * toDeg;
@@ -183,7 +245,7 @@ class FaceCapture {
       this._video = null;
     }
     if (this._landmarker) {
-      this._landmarker.close();
+      try { this._landmarker.close(); } catch (e) { /* ignore */ }
       this._landmarker = null;
     }
     this._active = false;

@@ -150,6 +150,17 @@ document.addEventListener('DOMContentLoaded', () => {
           camVideo.srcObject = engine.faceCapture.videoElement.srcObject;
           camPip.style.display = 'block';
         }
+
+        // Error callback — auto-recover UI if camera dies
+        engine.faceCapture.onError = (msg) => {
+          log('カメラエラー: ' + msg, 'e');
+          camActive = false;
+          btnCam.classList.remove('active');
+          btnCam.textContent = '📷 カメラを有効化';
+          camPip.style.display = 'none';
+          camVideo.srcObject = null;
+          log('音声フォールバックに切替', 'w');
+        };
       } else {
         btnCam.textContent = '📷 カメラを有効化';
         log('カメラ初期化失敗 — 音声フォールバック使用', 'w');
