@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Avatar Meeting Studio v3</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <header class="header">
+    <h1>Avatar Meeting Studio</h1>
+    <span class="badge">Mesh Warp v3.0</span>
+  </header>
+
+  <div class="main">
+    <!-- Left: Viewport -->
+    <div class="viewport">
+      <div class="canvas-wrap">
+        <div id="ph" class="placeholder">
+          <div class="icon">🎭</div>
+          <p>顔写真をアップロードしてください</p>
+        </div>
+        <canvas id="av"></canvas>
+        <div id="lb" class="live-badge"><span class="live-dot"></span>LIVE</div>
+        <!-- Camera PIP -->
+        <div class="cam-pip" id="pip">
+          <video id="pv" autoplay playsinline muted></video>
+        </div>
+      </div>
+
+      <div id="vw" class="viz-wrap"></div>
+
+      <div class="status-bar">
+        <span id="se">😐 neutral</span>
+        <span id="sf">FPS:--</span>
+        <span id="ss">🔇</span>
+        <span id="sh">--Hz</span>
+      </div>
+    </div>
+
+    <!-- Right: Controls -->
+    <div class="controls">
+      <div class="card">
+        <h3>📷 アバター写真</h3>
+        <div id="ua" class="upload-area">
+          <div class="icon">📁</div>
+          <p>ドラッグ&amp;ドロップ / クリックして選択</p>
+          <img id="th" alt="preview">
+        </div>
+        <input type="file" id="fi" accept="image/jpeg,image/png">
+      </div>
+
+      <div class="card">
+        <h3>🎤 マイク</h3>
+        <button id="bm" class="btn" disabled>🎤 マイクを有効化</button>
+        <p style="font-size:0.75rem;color:var(--text-muted);margin-top:8px;">
+          Viseme生成 + 音声感情分析 (&lt;16ms)
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>📹 カメラ</h3>
+        <button id="bc" class="btn" disabled>📹 カメラを有効化</button>
+        <p style="font-size:0.75rem;color:var(--text-muted);margin-top:8px;">
+          頭部追跡 (FaceDetector / 輝度重心)
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>🔄 仮想カメラ</h3>
+        <button id="bv" class="btn" disabled>🔄 仮想カメラ ON</button>
+      </div>
+
+      <div class="card">
+        <h3>⚙️ 詳細設定</h3>
+        <div class="setting-row">
+          <label for="t_blink">まばたき</label>
+          <div class="toggle"><input type="checkbox" id="t_blink" class="tg" checked><span class="slider"></span></div>
+        </div>
+        <div class="setting-row">
+          <label for="t_breath">呼吸</label>
+          <div class="toggle"><input type="checkbox" id="t_breath" class="tg" checked><span class="slider"></span></div>
+        </div>
+        <div class="setting-row">
+          <label for="t_micro">マイクロ表情</label>
+          <div class="toggle"><input type="checkbox" id="t_micro" class="tg" checked><span class="slider"></span></div>
+        </div>
+        <div class="setting-row">
+          <label for="t_glass">メガネ保護</label>
+          <div class="toggle"><input type="checkbox" id="t_glass" class="tg"><span class="slider"></span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>📋 ログ</h3>
+        <div id="lg" class="log-box"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts (no ES modules — plain script tags) -->
+  <script src="js/perlin-noise.js"></script>
+  <script src="js/audio-analyzer.js"></script>
+  <script src="js/mesh-warp-engine.js"></script>
+  <script src="js/face-tracker.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/app.js"></script>
+
+</body>
+</html>
