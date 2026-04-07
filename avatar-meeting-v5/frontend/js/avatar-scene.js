@@ -122,9 +122,25 @@ export class AvatarScene {
   }
 
   /**
-   * Load a Ready Player Me .glb avatar.
-   * Automatically appends ?morphTargets=ARKit if missing.
-   * @param {string} url - Ready Player Me .glb URL
+   * Load avatar from a local File/Blob.
+   * Creates a temporary Object URL and loads via GLTFLoader.
+   * @param {File|Blob} file
+   * @returns {Promise<void>}
+   */
+  async loadAvatarFromFile(file) {
+    const objectUrl = URL.createObjectURL(file);
+    console.log(`[AvatarScene] Loading local file: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
+    try {
+      await this._loadGLTF(objectUrl);
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  /**
+   * Load avatar from a URL string.
+   * Automatically appends ?morphTargets=ARKit for Ready Player Me URLs.
+   * @param {string} url
    * @returns {Promise<void>}
    */
   async loadAvatar(url) {
@@ -135,7 +151,17 @@ export class AvatarScene {
       finalUrl = `${finalUrl}${sep}morphTargets=ARKit&textureAtlas=1024`;
     }
 
-    console.log('[AvatarScene] Loading:', finalUrl);
+    console.log('[AvatarScene] Loading URL:', finalUrl);
+    await this._loadGLTF(finalUrl);
+  }
+
+  /**
+   * Internal: load glTF from any source (URL or Object URL).
+   * @private
+   * @param {string} url
+   * @returns {Promise<void>}
+   */
+  async _loadGLTF(url) {
 
     // Remove existing avatar
     if (this._avatar) {
@@ -148,7 +174,7 @@ export class AvatarScene {
 
     // Load glTF
     const loader = new GLTFLoader();
-    const gltf = await loader.loadAsync(finalUrl);
+    const gltf = await loader.loadAsync(url);
     this._avatar = gltf.scene;
     this._scene.add(this._avatar);
 

@@ -53,21 +53,28 @@
     <!-- Right: Controls -->
     <div class="controls">
 
-      <!-- Avatar URL -->
+      <!-- Avatar -->
       <div class="card">
         <h3>👤 アバター</h3>
+
+        <!-- Local file upload -->
+        <div class="file-drop" id="file-drop">
+          <input type="file" id="file-input" accept=".glb,.gltf" hidden>
+          <div class="file-drop-label">📁 ローカル .glb ファイルをドロップ<br><span>またはクリックして選択</span></div>
+        </div>
+
+        <!-- OR divider -->
+        <div class="or-divider"><span>または URL から</span></div>
+
+        <!-- URL input -->
         <input type="text" id="avatar-url" class="url-input"
                value="https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@main/avatars/brunette.glb"
                placeholder=".glb avatar URL">
-        <button id="load-avatar" class="btn">アバターをロード</button>
+        <button id="load-avatar" class="btn">URL からロード</button>
         <div class="hint">
           <a href="https://readyplayer.me/avatar?bodyType=halfbody" target="_blank" style="color:var(--accent)">
             readyplayer.me で自分のアバターを作成 →
           </a>
-          <br>
-          <span style="color:var(--text-muted);font-size:10px">
-            デモ: brunette.glb (ARKit BlendShape付き RPM アバター)
-          </span>
         </div>
       </div>
 

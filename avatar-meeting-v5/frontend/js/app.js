@@ -49,6 +49,27 @@ class App {
     this.scene = new AvatarScene(this._canvas);
     this.vcam = new VirtualCamera(this._canvas);
 
+    // ----- File drop / file input -----
+    this._fileDrop = document.getElementById('file-drop');
+    this._fileInput = document.getElementById('file-input');
+
+    this._fileDrop.addEventListener('click', () => this._fileInput.click());
+    this._fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length) this._loadAvatarFromFile(e.target.files[0]);
+    });
+    this._fileDrop.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      this._fileDrop.classList.add('over');
+    });
+    this._fileDrop.addEventListener('dragleave', () => {
+      this._fileDrop.classList.remove('over');
+    });
+    this._fileDrop.addEventListener('drop', (e) => {
+      e.preventDefault();
+      this._fileDrop.classList.remove('over');
+      if (e.dataTransfer.files.length) this._loadAvatarFromFile(e.dataTransfer.files[0]);
+    });
+
     // ----- Event listeners -----
     this._loadBtn.addEventListener('click', () => this._loadAvatar());
     this._camBtn.addEventListener('click', () => this._toggleCamera());
@@ -71,6 +92,32 @@ class App {
     this._loop();
 
     this._log('i', 'Avatar Meeting Studio v5 ready');
+  }
+
+  /**
+   * Load avatar from a local .glb file.
+   * @param {File} file
+   * @private
+   */
+  async _loadAvatarFromFile(file) {
+    if (!file) return;
+    if (!file.name.endsWith('.glb') && !file.name.endsWith('.gltf')) {
+      this._log('w', '.glb または .gltf ファイルを選択してください');
+      return;
+    }
+
+    this._showLoading(`ローカルファイルをロード中...\n${file.name}`);
+    try {
+      await this.scene.loadAvatarFromFile(file);
+      this._hideLoading();
+      this._camBtn.disabled = false;
+      this._vcamBtn.disabled = false;
+      this._log('s', `ローカルアバター読み込み完了: ${file.name}`);
+    } catch (err) {
+      this._hideLoading();
+      this._log('e', `読み込み失敗: ${err.message}`);
+      console.error('[App] Local avatar load error:', err);
+    }
   }
 
   /**
