@@ -85,13 +85,50 @@ class App {
       this.scene.mirrored = e.target.checked;
     });
 
+    // ----- Framing preset buttons -----
+    document.querySelectorAll('[data-preset]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        const preset = e.target.dataset.preset;
+        this.scene.setFramingPreset(preset);
+        document.querySelectorAll('[data-preset]').forEach((b) => b.classList.remove('active'));
+        e.target.classList.add('active');
+      });
+    });
+
+    // Zoom slider
+    const zoomSlider = document.getElementById('zoom-slider');
+    if (zoomSlider) {
+      zoomSlider.addEventListener('input', (e) => {
+        this.scene.setZoomLevel(parseFloat(e.target.value));
+      });
+    }
+
+    // ----- VFX settings -----
+    const vfxBindings = [
+      ['vfx-enabled', 'enabled', 'checked'],
+      ['vfx-bloom', 'bloom', 'value'],
+      ['vfx-ssao', 'ssao', 'value'],
+      ['vfx-dof', 'dof', 'value'],
+      ['vfx-vignette', 'vignette', 'value'],
+      ['vfx-grain', 'filmGrain', 'value'],
+    ];
+    for (const [id, key, prop] of vfxBindings) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      const evtName = prop === 'checked' ? 'change' : 'input';
+      el.addEventListener(evtName, (e) => {
+        const val = prop === 'checked' ? e.target.checked : parseFloat(e.target.value);
+        this.scene.vfx[key] = val;
+      });
+    }
+
     // ----- Auto-load default avatar -----
     this._loadAvatar();
 
     // ----- Start main loop -----
     this._loop();
 
-    this._log('i', 'Avatar Meeting Studio v5 ready');
+    this._log('i', 'Avatar Meeting Studio v6 ready');
   }
 
   /**

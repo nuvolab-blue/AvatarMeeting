@@ -78,6 +78,22 @@
         </div>
       </div>
 
+      <!-- Framing / Zoom -->
+      <div class="card">
+        <h3>🎬 フレーミング</h3>
+        <div class="framing-buttons">
+          <button class="btn-small" data-preset="fullbody">全身</button>
+          <button class="btn-small" data-preset="upper">上半身</button>
+          <button class="btn-small" data-preset="portrait">バスト</button>
+          <button class="btn-small" data-preset="closeup">顔</button>
+        </div>
+        <div class="row">
+          <label>ズーム</label>
+          <input type="range" id="zoom-slider" min="0" max="1" step="0.01" value="0.33">
+        </div>
+        <p class="hint">マウスホイールでもズーム可能</p>
+      </div>
+
       <!-- Camera -->
       <div class="card">
         <h3>📹 カメラ追跡</h3>
@@ -90,6 +106,35 @@
         <h3>🔄 仮想カメラ出力</h3>
         <button id="start-vcam" class="btn" disabled>🔄 仮想カメラ ON</button>
         <p class="hint">OBS Virtual Camera 経由で Meet/Slack に出力</p>
+      </div>
+
+      <!-- Cinematic VFX -->
+      <div class="card">
+        <h3>🎨 シネマティック VFX</h3>
+        <div class="row">
+          <label>VFX 全体</label>
+          <input type="checkbox" id="vfx-enabled" checked>
+        </div>
+        <div class="row">
+          <label>Bloom</label>
+          <input type="range" id="vfx-bloom" min="0" max="1" step="0.05" value="0.4">
+        </div>
+        <div class="row">
+          <label>SSAO</label>
+          <input type="range" id="vfx-ssao" min="0" max="1" step="0.05" value="0.5">
+        </div>
+        <div class="row">
+          <label>被写界深度</label>
+          <input type="range" id="vfx-dof" min="0" max="1" step="0.05" value="0.3">
+        </div>
+        <div class="row">
+          <label>ビネット</label>
+          <input type="range" id="vfx-vignette" min="0" max="1" step="0.05" value="0.3">
+        </div>
+        <div class="row">
+          <label>フィルムグレイン</label>
+          <input type="range" id="vfx-grain" min="0" max="0.2" step="0.01" value="0.05">
+        </div>
       </div>
 
       <!-- Settings -->

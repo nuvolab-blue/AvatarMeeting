@@ -172,6 +172,26 @@ body {
 }
 
 /* Button */
+/* Framing preset buttons */
+.framing-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.btn-small {
+  padding: 6px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: 0.15s;
+}
+.btn-small:hover { border-color: var(--accent); }
+.btn-small.active { background: var(--accent); border-color: var(--accent); }
+
 .btn {
   width: 100%;
   padding: 10px;
