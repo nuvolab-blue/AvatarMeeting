@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Avatar Meeting Studio v5</title>
+  <link rel="stylesheet" href="css/style.css">
+
+  <!-- importmap: Three.js を CDN から ES Modules で読み込む -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <header class="header">
+    <h1>Avatar Meeting Studio</h1>
+    <span class="badge">v5 · Ready Player Me + MediaPipe</span>
+  </header>
+
+  <div class="main">
+    <!-- Left: 3D Avatar viewport -->
+    <div class="viewport">
+      <canvas id="avatar-canvas"></canvas>
+
+      <!-- Camera PIP (top-right) -->
+      <div class="cam-pip" id="pip">
+        <video id="pv" autoplay playsinline muted></video>
+      </div>
+
+      <!-- LIVE badge (when virtual cam on) -->
+      <div id="lb" class="live-badge"><span class="live-dot"></span>LIVE</div>
+
+      <!-- Loading overlay -->
+      <div id="loading" class="loading-overlay">
+        <div class="spinner"></div>
+        <div id="loading-text">アバターをロード中...</div>
+      </div>
+
+      <!-- Status bar (bottom) -->
+      <div class="status-bar">
+        <span id="sf">FPS:--</span>
+        <span id="sj">jaw:--</span>
+        <span id="sb">blink:--</span>
+        <span id="sh">yaw:--</span>
+      </div>
+    </div>
+
+    <!-- Right: Controls -->
+    <div class="controls">
+
+      <!-- Avatar URL -->
+      <div class="card">
+        <h3>👤 アバター</h3>
+        <input type="text" id="avatar-url" class="url-input"
+               value="https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@main/avatars/brunette.glb"
+               placeholder=".glb avatar URL">
+        <button id="load-avatar" class="btn">アバターをロード</button>
+        <div class="hint">
+          <a href="https://readyplayer.me/avatar?bodyType=halfbody" target="_blank" style="color:var(--accent)">
+            readyplayer.me で自分のアバターを作成 →
+          </a>
+          <br>
+          <span style="color:var(--text-muted);font-size:10px">
+            デモ: brunette.glb (ARKit BlendShape付き RPM アバター)
+          </span>
+        </div>
+      </div>
+
+      <!-- Camera -->
+      <div class="card">
+        <h3>📹 カメラ追跡</h3>
+        <button id="start-camera" class="btn" disabled>📹 カメラを有効化</button>
+        <p class="hint">MediaPipe Face Landmarker (GPU 加速)</p>
+      </div>
+
+      <!-- Virtual Camera -->
+      <div class="card">
+        <h3>🔄 仮想カメラ出力</h3>
+        <button id="start-vcam" class="btn" disabled>🔄 仮想カメラ ON</button>
+        <p class="hint">OBS Virtual Camera 経由で Meet/Slack に出力</p>
+      </div>
+
+      <!-- Settings -->
+      <div class="card">
+        <h3>⚙️ 設定</h3>
+        <div class="row">
+          <label>表情のスムージング</label>
+          <input type="range" id="smoothing" min="0" max="1" step="0.05" value="0.5">
+        </div>
+        <div class="row">
+          <label>頭部追従の強さ</label>
+          <input type="range" id="head-strength" min="0" max="2" step="0.1" value="1.0">
+        </div>
+        <div class="row">
+          <label>ミラー表示</label>
+          <input type="checkbox" id="mirror" checked>
+        </div>
+      </div>
+
+      <!-- Log -->
+      <div class="card">
+        <h3>📋 ログ</h3>
+        <div id="log" class="log-box"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- メインスクリプト (ES Module) -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
