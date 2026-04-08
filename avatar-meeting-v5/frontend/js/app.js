@@ -122,6 +122,20 @@ class App {
       });
     }
 
+    // ----- Idle gesture settings -----
+    const gestEnabled = document.getElementById('gesture-enabled');
+    if (gestEnabled) {
+      gestEnabled.addEventListener('change', (e) => {
+        this.scene.setGestureEnabled(e.target.checked);
+      });
+    }
+    const gestIntensity = document.getElementById('gesture-intensity');
+    if (gestIntensity) {
+      gestIntensity.addEventListener('input', (e) => {
+        this.scene.setGestureIntensity(parseFloat(e.target.value));
+      });
+    }
+
     // ----- Auto-load default avatar -----
     this._loadAvatar();
 

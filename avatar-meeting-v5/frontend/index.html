@@ -19,7 +19,7 @@
 <body>
   <header class="header">
     <h1>Avatar Meeting Studio</h1>
-    <span class="badge">v5 · Ready Player Me + MediaPipe</span>
+    <span class="badge">v7 · Ready Player Me + MediaPipe</span>
   </header>
 
   <div class="main">
@@ -135,6 +135,23 @@
           <label>フィルムグレイン</label>
           <input type="range" id="vfx-grain" min="0" max="0.2" step="0.01" value="0.05">
         </div>
+      </div>
+
+      <!-- Idle Gesture -->
+      <div class="card">
+        <h3>🙆 身振り手振り</h3>
+        <div class="row">
+          <label for="gesture-enabled">有効</label>
+          <input type="checkbox" id="gesture-enabled" checked>
+        </div>
+        <div class="row">
+          <label for="gesture-intensity">強度</label>
+          <input type="range" id="gesture-intensity" min="0" max="2" step="0.05" value="1.0">
+        </div>
+        <p class="hint">
+          喋っているときに自動的に上半身が自然に動きます<br>
+          (jawOpen を話者判定に使用)
+        </p>
       </div>
 
       <!-- Settings -->

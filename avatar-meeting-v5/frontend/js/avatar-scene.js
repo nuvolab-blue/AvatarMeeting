@@ -22,6 +22,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+import { IdleGestureAnimator } from './idle-gesture.js';
 
 export class AvatarScene {
   /**
@@ -59,6 +60,12 @@ export class AvatarScene {
     this._smoothedHeadRot = new THREE.Euler();
     /** @private */
     this._loaded = false;
+
+    // ===== v7: Idle body gesture =====
+    /** @type {IdleGestureAnimator} */
+    this._gesture = new IdleGestureAnimator();
+    /** @private */
+    this._lastGestureTime = 0;
 
     // ===== v6: Zoom / OrbitControls =====
     /** @type {OrbitControls|null} */
@@ -485,6 +492,7 @@ export class AvatarScene {
   async _loadGLTF(url) {
     // Remove existing avatar
     if (this._avatar) {
+      this._gesture.clear();
       this._scene.remove(this._avatar);
       this._avatar = null;
       this._morphMeshes = [];
@@ -545,6 +553,9 @@ export class AvatarScene {
       console.warn('[AvatarScene] WARNING: Head bone not found');
     }
 
+    // Register bones for idle gesture animation
+    this._gesture.registerAvatar(this._avatar);
+
     // Frame camera
     this._frameUpperBody();
 
@@ -595,7 +606,13 @@ export class AvatarScene {
       this._applyHeadPose(transformMatrix);
     }
 
-    // 3. Camera smooth lerp (for framing presets / zoom slider)
+    // 3. Idle body gesture (uses jawOpen as speech indicator)
+    const now = performance.now();
+    const gestDt = this._lastGestureTime ? now - this._lastGestureTime : 16;
+    this._lastGestureTime = now;
+    this._gesture.update(gestDt, blendShapes);
+
+    // 4. Camera smooth lerp (for framing presets / zoom slider)
     if (this._cameraDesiredPosition && this._controls) {
       const dist = this._camera.position.distanceTo(this._cameraDesiredPosition);
       if (dist > 0.01 && !this._userInteracting) {
@@ -611,7 +628,7 @@ export class AvatarScene {
       this._controls.update();
     }
 
-    // 4. Render (EffectComposer or direct)
+    // 5. Render (EffectComposer or direct)
     if (this._composer && this.vfx.enabled) {
       // Update shader uniforms
       if (this._cinematicPass) {
@@ -705,5 +722,24 @@ export class AvatarScene {
    */
   getStream(fps = 30) {
     return this._canvas.captureStream(fps);
+  }
+
+  // ==========================================================================
+  // Idle Gesture API (public) — v7
+  // ==========================================================================
+
+  /** Enable or disable idle body gesture animation */
+  setGestureEnabled(enabled) {
+    this._gesture.enabled = !!enabled;
+  }
+
+  /** Set gesture intensity (0..2, 1=natural) */
+  setGestureIntensity(value) {
+    this._gesture.intensity = Math.max(0, Math.min(2, value));
+  }
+
+  /** Get current gesture intensity */
+  get gestureIntensity() {
+    return this._gesture.intensity;
   }
 }
