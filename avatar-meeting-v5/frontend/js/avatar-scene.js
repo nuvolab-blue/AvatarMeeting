@@ -61,11 +61,13 @@ export class AvatarScene {
     /** @private */
     this._loaded = false;
 
-    // ===== v7: Idle body gesture =====
+    // ===== v7: Idle body gesture + pose tracking =====
     /** @type {IdleGestureAnimator} */
     this._gesture = new IdleGestureAnimator();
     /** @private */
     this._lastGestureTime = 0;
+    /** @type {import('./pose-tracker.js').PoseTracker|null} */
+    this._poseTracker = null;
 
     // ===== v6: Zoom / OrbitControls =====
     /** @type {OrbitControls|null} */
@@ -610,7 +612,11 @@ export class AvatarScene {
     const now = performance.now();
     const gestDt = this._lastGestureTime ? now - this._lastGestureTime : 16;
     this._lastGestureTime = now;
-    this._gesture.update(gestDt, blendShapes);
+    if (this._poseTracker?.poseDetected && this._poseTracker.worldLandmarks) {
+      this._gesture.updateWithPose(gestDt, blendShapes, this._poseTracker.worldLandmarks, this.mirrored);
+    } else {
+      this._gesture.update(gestDt, blendShapes);
+    }
 
     // 4. Camera smooth lerp (for framing presets / zoom slider)
     if (this._cameraDesiredPosition && this._controls) {
@@ -741,5 +747,13 @@ export class AvatarScene {
   /** Get current gesture intensity */
   get gestureIntensity() {
     return this._gesture.intensity;
+  }
+
+  /**
+   * Set the pose tracker for body tracking.
+   * @param {import('./pose-tracker.js').PoseTracker|null} tracker
+   */
+  setPoseTracker(tracker) {
+    this._poseTracker = tracker;
   }
 }

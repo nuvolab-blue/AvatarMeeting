@@ -12,6 +12,7 @@
  */
 
 import { FaceTracker } from './face-tracker.js';
+import { PoseTracker } from './pose-tracker.js';
 import { AvatarScene } from './avatar-scene.js';
 import { VirtualCamera } from './virtual-camera.js';
 
@@ -23,6 +24,8 @@ class App {
     this.tracker = null;
     /** @type {VirtualCamera|null} */
     this.vcam = null;
+    /** @type {PoseTracker|null} */
+    this.poseTracker = null;
 
     // FPS counter
     this._fpsFrames = 0;
@@ -202,18 +205,37 @@ class App {
       this._showLoading('MediaPipe を初期化中...\n(初回は ~5MB ダウンロード)');
       this.tracker = new FaceTracker();
       const ok = await this.tracker.init();
-      this._hideLoading();
       if (!ok) {
+        this._hideLoading();
         this._log('e', 'カメラ初期化失敗');
         this.tracker = null;
         return;
       }
+      this._log('s', 'カメラ追跡開始 (Face Landmarker)');
+
+      // Start pose tracking using the same camera stream
+      this._showLoading('ポーズ検出を初期化中...\n(pose_landmarker_lite)');
+      this.poseTracker = new PoseTracker();
+      const poseOk = await this.poseTracker.init(this.tracker._stream);
+      this._hideLoading();
+      if (poseOk) {
+        this.scene.setPoseTracker(this.poseTracker);
+        this._log('s', 'ポーズ追跡開始 (Pose Landmarker)');
+      } else {
+        this._log('w', 'ポーズ追跡初期化失敗 (ノイズモードで動作)');
+        this.poseTracker = null;
+      }
+
       this._camBtn.textContent = '📹 カメラ OFF';
       this._camBtn.classList.add('active');
-      this._log('s', 'カメラ追跡開始 (MediaPipe Face Landmarker)');
     } else {
       this.tracker.stop();
       this.tracker = null;
+      if (this.poseTracker) {
+        this.poseTracker.stop();
+        this.poseTracker = null;
+      }
+      this.scene.setPoseTracker(null);
       this._camBtn.textContent = '📹 カメラを有効化';
       this._camBtn.classList.remove('active');
       this._log('i', 'カメラ停止');
