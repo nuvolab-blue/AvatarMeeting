@@ -19,7 +19,7 @@
 <body>
   <header class="header">
     <h1>Avatar Meeting Studio</h1>
-    <span class="badge">v7 · Ready Player Me + MediaPipe</span>
+    <span class="badge">v8 · Retargeting + VFX Background</span>
   </header>
 
   <div class="main">
@@ -135,6 +135,21 @@
           <label>フィルムグレイン</label>
           <input type="range" id="vfx-grain" min="0" max="0.2" step="0.01" value="0.05">
         </div>
+      </div>
+
+      <!-- Background VFX -->
+      <div class="card">
+        <h3>🎨 背景</h3>
+        <select id="bg-preset" class="select-input">
+          <option value="">-- プリセットを選択 --</option>
+        </select>
+        <div class="file-upload-row" style="margin-top:8px">
+          <button id="bg-image-btn" class="btn btn-secondary">🖼 画像</button>
+          <button id="bg-video-btn" class="btn btn-secondary">🎬 動画</button>
+        </div>
+        <input type="file" id="bg-image-file" accept="image/*" style="display:none">
+        <input type="file" id="bg-video-file" accept="video/*" style="display:none">
+        <p class="hint">JPG/PNG 画像、MP4/WebM 動画に対応</p>
       </div>
 
       <!-- Idle Gesture -->

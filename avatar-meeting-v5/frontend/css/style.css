@@ -286,6 +286,49 @@ body {
 .hint a { color: var(--accent); text-decoration: none; }
 
 /* Log box */
+/* Select input */
+.select-input {
+  width: 100%;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.select-input:hover {
+  border-color: var(--accent);
+}
+
+/* File upload row */
+.file-upload-row {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-secondary {
+  flex: 1;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: 0.15s;
+}
+.btn-secondary:hover {
+  border-color: var(--accent);
+}
+
+/* Drag-over highlight */
+.drag-over {
+  outline: 3px dashed var(--accent);
+  outline-offset: -8px;
+}
+
+/* Log box */
 .log-box {
   font-family: 'SF Mono', Menlo, monospace;
   font-size: 10px;

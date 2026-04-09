@@ -105,6 +105,14 @@ export class AvatarScene {
       filmGrain: 0.05,
     };
 
+    // ===== v8: Background system =====
+    /** @private {THREE.Mesh|null} Background plane for 2D image/video */
+    this._bgPlane = null;
+    /** @private {THREE.Texture|HTMLVideoElement|null} Current background resource */
+    this._bgResource = null;
+    /** @private Current background mode */
+    this._bgMode = 'color';
+
     this._init();
   }
 
@@ -507,53 +515,9 @@ export class AvatarScene {
     this._avatar = gltf.scene;
     this._scene.add(this._avatar);
 
-    // ★ v6: Material quality enhancements (shadow, envMap, skin tuning)
-    this._avatar.traverse((obj) => {
-      if (obj.isMesh) {
-        obj.castShadow = true;
-        obj.receiveShadow = true;
-
-        if (obj.material) {
-          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-          for (const m of mats) {
-            if (m.envMapIntensity !== undefined) m.envMapIntensity = 1.2;
-            if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
-            // Skin tuning for head/body meshes
-            if (obj.name && /head|skin|body/i.test(obj.name)) {
-              if (m.roughness !== undefined) m.roughness = 0.65;
-              if (m.metalness !== undefined) m.metalness = 0.0;
-            }
-            m.needsUpdate = true;
-          }
-        }
-      }
-    });
-
-    // ----- Traverse for morph meshes and bones -----
-    this._avatar.traverse((obj) => {
-      if (obj.isMesh && obj.morphTargetDictionary) {
-        this._morphMeshes.push(obj);
-        console.log(
-          `[AvatarScene] Mesh "${obj.name}" — ${Object.keys(obj.morphTargetDictionary).length} morph targets`
-        );
-      }
-      if (obj.isBone || obj.type === 'Bone') {
-        const n = obj.name.toLowerCase();
-        if (obj.name === 'Head' || n === 'head' || n.includes('head')) {
-          if (!this._headBone) this._headBone = obj;
-        }
-        if (obj.name === 'Neck' || n === 'neck' || n.includes('neck')) {
-          if (!this._neckBone) this._neckBone = obj;
-        }
-      }
-    });
-
-    if (this._morphMeshes.length === 0) {
-      console.warn('[AvatarScene] WARNING: No morph targets found!');
-    }
-    if (!this._headBone) {
-      console.warn('[AvatarScene] WARNING: Head bone not found');
-    }
+    // Apply material quality and collect morph/bone data
+    this._applyMaterialQuality();
+    this._collectMorphAndBones();
 
     // Register bones for idle gesture animation
     this._gesture.registerAvatar(this._avatar);
@@ -755,5 +719,226 @@ export class AvatarScene {
    */
   setPoseTracker(tracker) {
     this._poseTracker = tracker;
+  }
+
+  // ==========================================================================
+  // Internal helpers (v8 refactor)
+  // ==========================================================================
+
+  /** @private */
+  _applyMaterialQuality() {
+    if (!this._avatar) return;
+    this._avatar.traverse((obj) => {
+      if (obj.isMesh) {
+        obj.castShadow = true;
+        obj.receiveShadow = true;
+        if (obj.material) {
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          for (const m of mats) {
+            if (m.envMapIntensity !== undefined) m.envMapIntensity = 1.2;
+            if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
+            if (obj.name && /head|skin|body/i.test(obj.name)) {
+              if (m.roughness !== undefined) m.roughness = 0.65;
+              if (m.metalness !== undefined) m.metalness = 0.0;
+            }
+            m.needsUpdate = true;
+          }
+        }
+      }
+    });
+  }
+
+  /** @private */
+  _collectMorphAndBones() {
+    if (!this._avatar) return;
+    this._morphMeshes = [];
+    this._headBone = null;
+    this._neckBone = null;
+
+    this._avatar.traverse((obj) => {
+      if (obj.isMesh && obj.morphTargetDictionary) {
+        this._morphMeshes.push(obj);
+        console.log(
+          `[AvatarScene] Mesh "${obj.name}" — ${Object.keys(obj.morphTargetDictionary).length} morph targets`
+        );
+      }
+      if (obj.isBone || obj.type === 'Bone') {
+        const n = obj.name.toLowerCase();
+        if (obj.name === 'Head' || n === 'head' || n.includes('head')) {
+          if (!this._headBone) this._headBone = obj;
+        }
+        if (obj.name === 'Neck' || n === 'neck' || n.includes('neck')) {
+          if (!this._neckBone) this._neckBone = obj;
+        }
+      }
+    });
+
+    if (this._morphMeshes.length === 0) {
+      console.warn('[AvatarScene] WARNING: No morph targets found!');
+    }
+    if (!this._headBone) {
+      console.warn('[AvatarScene] WARNING: Head bone not found');
+    }
+  }
+
+  // ==========================================================================
+  // Background API (v8)
+  // ==========================================================================
+
+  /**
+   * Set solid color background.
+   * @param {string|number} color
+   */
+  setBackgroundColor(color) {
+    this._clearBackgroundPlane();
+    this._scene.background = new THREE.Color(color);
+    this._bgMode = 'color';
+  }
+
+  /**
+   * Set HDRI as the background (spherical).
+   * @param {string} url - URL to .hdr file
+   */
+  async setBackgroundHDRI(url) {
+    this._clearBackgroundPlane();
+    return new Promise((resolve, reject) => {
+      new RGBELoader().load(
+        url,
+        (texture) => {
+          texture.mapping = THREE.EquirectangularReflectionMapping;
+          this._scene.background = texture;
+          if (!this._scene.environment) {
+            this._scene.environment = texture;
+          }
+          this._bgMode = 'hdri';
+          console.log('[AvatarScene] HDRI background loaded:', url);
+          resolve();
+        },
+        undefined,
+        (err) => {
+          console.warn('[AvatarScene] HDRI load failed:', err);
+          reject(err);
+        }
+      );
+    });
+  }
+
+  /**
+   * Set a 2D image as the background (rendered on a Plane behind the avatar).
+   * @param {string|File} source - URL or File object
+   */
+  async setBackgroundImage(source) {
+    const url = source instanceof File
+      ? URL.createObjectURL(source)
+      : source;
+
+    return new Promise((resolve, reject) => {
+      new THREE.TextureLoader().load(
+        url,
+        (texture) => {
+          texture.colorSpace = THREE.SRGBColorSpace;
+          this._clearBackgroundPlane();
+          this._createBackgroundPlane(texture);
+          this._bgMode = 'image';
+          this._scene.background = new THREE.Color(0x000000);
+          if (source instanceof File) URL.revokeObjectURL(url);
+          console.log('[AvatarScene] Image background set');
+          resolve();
+        },
+        undefined,
+        reject
+      );
+    });
+  }
+
+  /**
+   * Set a video as the background (rendered on a Plane, auto-playing loop).
+   * @param {string|File} source - URL or File object
+   */
+  async setBackgroundVideo(source) {
+    const url = source instanceof File
+      ? URL.createObjectURL(source)
+      : source;
+
+    const video = document.createElement('video');
+    video.src = url;
+    video.crossOrigin = 'anonymous';
+    video.loop = true;
+    video.muted = true;
+    video.playsInline = true;
+    video.autoplay = true;
+
+    await new Promise((resolve, reject) => {
+      video.addEventListener('loadeddata', resolve, { once: true });
+      video.addEventListener('error', reject, { once: true });
+    });
+    await video.play().catch(() => {});
+
+    const texture = new THREE.VideoTexture(video);
+    texture.colorSpace = THREE.SRGBColorSpace;
+
+    this._clearBackgroundPlane();
+    this._createBackgroundPlane(texture);
+    this._bgResource = video;
+    this._bgMode = 'video';
+    this._scene.background = new THREE.Color(0x000000);
+    console.log('[AvatarScene] Video background set');
+  }
+
+  /**
+   * Create a Plane mesh behind the avatar with the given texture.
+   * @private
+   */
+  _createBackgroundPlane(texture) {
+    const distanceFromCamera = 5.0;
+    const vFov = (this._camera.fov * Math.PI) / 180;
+    const height = 2 * Math.tan(vFov / 2) * distanceFromCamera;
+    const aspect = texture.image
+      ? (texture.image.videoWidth || texture.image.width) /
+        (texture.image.videoHeight || texture.image.height)
+      : 16 / 9;
+    const width = Math.max(height * aspect, height * 1.78);
+
+    const geom = new THREE.PlaneGeometry(width * 1.5, height * 1.5);
+    const mat = new THREE.MeshBasicMaterial({
+      map: texture,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    this._bgPlane = new THREE.Mesh(geom, mat);
+    this._bgPlane.position.set(0, 1.4, -3.0);
+    this._bgPlane.renderOrder = -1;
+    this._scene.add(this._bgPlane);
+  }
+
+  /** @private */
+  _clearBackgroundPlane() {
+    if (this._bgPlane) {
+      this._scene.remove(this._bgPlane);
+      this._bgPlane.geometry.dispose();
+      if (this._bgPlane.material.map) this._bgPlane.material.map.dispose();
+      this._bgPlane.material.dispose();
+      this._bgPlane = null;
+    }
+    if (this._bgResource && this._bgResource.tagName === 'VIDEO') {
+      this._bgResource.pause();
+      this._bgResource.src = '';
+    }
+    this._bgResource = null;
+  }
+
+  /** Preset HDRI list (CC0 from Poly Haven) */
+  get BACKGROUND_PRESETS() {
+    return [
+      { name: 'ダークスタジオ', mode: 'color', value: 0x101018 },
+      { name: 'スタジオ (中性)', mode: 'hdri',
+        url: 'https://cdn.jsdelivr.net/gh/google/model-viewer@master/packages/shared-assets/environments/neutral_1k.hdr' },
+      { name: 'フォトスタジオ', mode: 'hdri',
+        url: 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_09_1k.hdr' },
+      { name: '夕焼け', mode: 'hdri',
+        url: 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/venice_sunset_1k.hdr' },
+      { name: '夜の街', mode: 'hdri',
+        url: 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/moonless_golf_1k.hdr' },
+    ];
   }
 }

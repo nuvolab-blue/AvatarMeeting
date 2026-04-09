@@ -139,13 +139,80 @@ class App {
       });
     }
 
+    // ----- Background presets -----
+    const bgPresetSelect = document.getElementById('bg-preset');
+    if (bgPresetSelect) {
+      const presets = this.scene.BACKGROUND_PRESETS;
+      presets.forEach((p, i) => {
+        const opt = document.createElement('option');
+        opt.value = String(i);
+        opt.textContent = p.name;
+        bgPresetSelect.appendChild(opt);
+      });
+
+      bgPresetSelect.addEventListener('change', async (e) => {
+        const idx = parseInt(e.target.value);
+        if (isNaN(idx)) return;
+        const preset = presets[idx];
+        try {
+          this._showLoading(`背景読み込み中: ${preset.name}`);
+          if (preset.mode === 'color') {
+            this.scene.setBackgroundColor(preset.value);
+          } else if (preset.mode === 'hdri') {
+            await this.scene.setBackgroundHDRI(preset.url);
+          }
+          this._hideLoading();
+          this._log('s', `背景: ${preset.name}`);
+        } catch (err) {
+          this._hideLoading();
+          this._log('e', `背景設定失敗: ${err.message}`);
+        }
+      });
+    }
+
+    // Image background upload
+    const bgImageBtn = document.getElementById('bg-image-btn');
+    const bgImageFile = document.getElementById('bg-image-file');
+    if (bgImageBtn && bgImageFile) {
+      bgImageBtn.addEventListener('click', () => bgImageFile.click());
+      bgImageFile.addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        try {
+          await this.scene.setBackgroundImage(file);
+          this._log('s', `画像背景: ${file.name}`);
+        } catch (err) {
+          this._log('e', err.message);
+        }
+        bgImageFile.value = '';
+      });
+    }
+
+    // Video background upload
+    const bgVideoBtn = document.getElementById('bg-video-btn');
+    const bgVideoFile = document.getElementById('bg-video-file');
+    if (bgVideoBtn && bgVideoFile) {
+      bgVideoBtn.addEventListener('click', () => bgVideoFile.click());
+      bgVideoFile.addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        try {
+          await this.scene.setBackgroundVideo(file);
+          this._log('s', `動画背景: ${file.name}`);
+        } catch (err) {
+          this._log('e', err.message);
+        }
+        bgVideoFile.value = '';
+      });
+    }
+
     // ----- Auto-load default avatar -----
     this._loadAvatar();
 
     // ----- Start main loop -----
     this._loop();
 
-    this._log('i', 'Avatar Meeting Studio v6 ready');
+    this._log('i', 'Avatar Meeting Studio v8 ready');
   }
 
   /**
