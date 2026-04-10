@@ -326,6 +326,20 @@ body {
   border-color: var(--accent);
 }
 
+/* Background camera status */
+.bg-camera-status {
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  text-align: center;
+}
+.bg-camera-status.locked {
+  border-color: var(--success);
+  color: var(--success);
+}
+
 /* Drag-over highlight */
 .drag-over {
   outline: 3px dashed var(--accent);

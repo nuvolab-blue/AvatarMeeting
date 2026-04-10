@@ -1,13 +1,10 @@
 /**
  * @fileoverview Three.js scene for Ready Player Me 3D avatar rendering.
  *
- * v6 additions:
- *   - OrbitControls for mouse/trackpad camera control
- *   - 4 framing presets (fullbody/upper/portrait/closeup) + continuous zoom
- *   - EffectComposer post-processing pipeline (SSAO, Bloom, DOF, Vignette, Film Grain)
- *   - HDRI environment map for image-based lighting
- *   - Cinematic 3-point lighting with soft shadows
- *   - Material quality enhancements (envMap, shadow, skin tuning)
+ * v6: OrbitControls, framing presets, EffectComposer, HDRI, 3-point lighting
+ * v8: Background system (color, HDRI, image, video), material refactor
+ * v9: 360° panorama + 3D scene backgrounds
+ * v10: Dual-scene rendering (separate BG camera), dynamic framing presets
  */
 
 import * as THREE from 'three';
@@ -48,33 +45,25 @@ export class AvatarScene {
     this._clock = new THREE.Clock();
 
     // Driving parameters (controlled from UI)
-    /** @type {number} BlendShape smoothing (0=instant, 1=frozen) */
     this.smoothing = 0.5;
-    /** @type {number} Head pose strength multiplier */
     this.headStrength = 1.0;
-    /** @type {boolean} Mirror mode (for selfie camera) */
     this.mirrored = true;
 
-    // Internal smoothing state
     /** @private */
     this._smoothedHeadRot = new THREE.Euler();
     /** @private */
     this._loaded = false;
 
     // ===== v7: Idle body gesture + pose tracking =====
-    /** @type {IdleGestureAnimator} */
     this._gesture = new IdleGestureAnimator();
     /** @private */
     this._lastGestureTime = 0;
-    /** @type {import('./pose-tracker.js').PoseTracker|null} */
     this._poseTracker = null;
 
     // ===== v6: Zoom / OrbitControls =====
     /** @type {OrbitControls|null} */
     this._controls = null;
-    /** @type {number} Zoom level: 0=full body, 1=face close-up */
     this._zoomLevel = 0.5;
-    /** @type {THREE.Vector3} Camera target position (for smooth lerp) */
     this._cameraTarget = new THREE.Vector3();
     this._cameraDesiredPosition = new THREE.Vector3();
     this._cameraDesiredTarget = new THREE.Vector3();
@@ -84,7 +73,6 @@ export class AvatarScene {
     this._userInteracting = false;
 
     // ===== v6: VFX / Post-processing =====
-    /** @type {EffectComposer|null} */
     this._composer = null;
     /** @private */
     this._ssaoPass = null;
@@ -95,7 +83,6 @@ export class AvatarScene {
     /** @private */
     this._cinematicPass = null;
 
-    /** @type {Object} VFX settings (controlled from UI) */
     this.vfx = {
       enabled: true,
       bloom: 0.4,
@@ -110,8 +97,20 @@ export class AvatarScene {
     this._bgPlane = null;
     /** @private {THREE.Texture|HTMLVideoElement|null} Current background resource */
     this._bgResource = null;
-    /** @private {THREE.Object3D|null} 3D scene background (loaded from GLB/GLTF) */
-    this._bgScene = null;
+
+    // ===== v10: Dual-scene rendering =====
+    /** @private {THREE.Scene|null} Separate scene for 3D background */
+    this._bgScene3D = null;
+    /** @private {THREE.PerspectiveCamera|null} Independent camera for 3D background */
+    this._bgCamera = null;
+    /** @private {THREE.WebGLRenderTarget|null} Render target for background */
+    this._bgRenderTarget = null;
+    /** @private {OrbitControls|null} Controls for background camera */
+    this._bgControls = null;
+    /** @private {boolean} When true, background camera is locked */
+    this._bgCameraLocked = false;
+    /** @private {THREE.Object3D|null} Reference to loaded BG model for cleanup */
+    this._bgModelRoot = null;
     /** @private {'color'|'hdri'|'image'|'video'|'panorama'|'3dscene'} */
     this._bgMode = 'color';
 
@@ -119,20 +118,21 @@ export class AvatarScene {
   }
 
   // ==========================================================================
-  // Framing presets
+  // Framing presets (v10: dynamic distance from bbox)
   // ==========================================================================
 
   get FRAMING_PRESETS() {
     return {
-      fullbody: { name: '全身',           offsetY: -0.20, distance: 2.4, fov: 28 },
-      upper:    { name: '上半身',         offsetY: -0.05, distance: 1.4, fov: 28 },
-      portrait: { name: 'ポートレート',   offsetY: -0.08, distance: 0.85, fov: 30 },
-      closeup:  { name: '顔クローズアップ', offsetY: -0.05, distance: 0.45, fov: 35 },
+      fullbody: { name: '全身',            frac: 1.0,  margin: 0.15, fov: 32 },
+      upper:    { name: '上半身',          frac: 0.55, margin: 0.10, fov: 28 },
+      portrait: { name: 'ポートレート',    frac: 0.35, margin: 0.08, fov: 30 },
+      closeup:  { name: '顔クローズアップ', frac: 0.18, margin: 0.05, fov: 35 },
     };
   }
 
   /**
-   * Apply a framing preset (smooth transition).
+   * Apply a framing preset. Computes camera distance dynamically
+   * from the avatar's actual bounding box size.
    * @param {'fullbody'|'upper'|'portrait'|'closeup'} preset
    */
   setFramingPreset(preset) {
@@ -142,43 +142,57 @@ export class AvatarScene {
 
     const box = new THREE.Box3().setFromObject(this._avatar);
     const size = box.getSize(new THREE.Vector3());
-    const faceY = box.max.y - size.y * 0.12;
+    const avatarHeight = size.y;
 
-    this._cameraDesiredPosition.set(0, faceY + def.offsetY, def.distance);
-    this._cameraDesiredTarget.set(0, faceY + def.offsetY - 0.03, 0);
+    const visibleHeight = avatarHeight * def.frac;
+    const lookAtY = box.max.y - visibleHeight * 0.5;
+
+    const fovRad = (def.fov * Math.PI) / 180;
+    const baseDist = (visibleHeight * (1 + def.margin)) / (2 * Math.tan(fovRad / 2));
+
+    this._cameraDesiredPosition.set(0, lookAtY, baseDist);
+    this._cameraDesiredTarget.set(0, lookAtY, 0);
     this._desiredFOV = def.fov;
-    this._userInteracting = false; // allow lerp
+    this._userInteracting = false;
 
-    console.log(`[AvatarScene] Framing: ${def.name} (${preset})`);
+    console.log(
+      `[AvatarScene] Framing: ${def.name} — ` +
+      `height=${avatarHeight.toFixed(2)}, vis=${visibleHeight.toFixed(2)}, ` +
+      `dist=${baseDist.toFixed(2)}`
+    );
   }
 
   /**
    * Continuous zoom (0=full body, 1=face close-up).
-   * Interpolates between framing presets.
    * @param {number} t - 0..1
    */
   setZoomLevel(t) {
     this._zoomLevel = Math.max(0, Math.min(1, t));
-    const presets = ['fullbody', 'upper', 'portrait', 'closeup'];
-    const fIdx = this._zoomLevel * (presets.length - 1);
+    const presetKeys = ['fullbody', 'upper', 'portrait', 'closeup'];
+    const fIdx = this._zoomLevel * (presetKeys.length - 1);
     const i0 = Math.floor(fIdx);
-    const i1 = Math.min(i0 + 1, presets.length - 1);
+    const i1 = Math.min(i0 + 1, presetKeys.length - 1);
     const f = fIdx - i0;
 
-    const p0 = this.FRAMING_PRESETS[presets[i0]];
-    const p1 = this.FRAMING_PRESETS[presets[i1]];
+    const p0 = this.FRAMING_PRESETS[presetKeys[i0]];
+    const p1 = this.FRAMING_PRESETS[presetKeys[i1]];
 
     if (!this._avatar) return;
     const box = new THREE.Box3().setFromObject(this._avatar);
     const size = box.getSize(new THREE.Vector3());
-    const faceY = box.max.y - size.y * 0.12;
+    const avatarHeight = size.y;
 
-    const offsetY = p0.offsetY + (p1.offsetY - p0.offsetY) * f;
-    const distance = p0.distance + (p1.distance - p0.distance) * f;
+    const frac = p0.frac + (p1.frac - p0.frac) * f;
+    const margin = p0.margin + (p1.margin - p0.margin) * f;
     const fov = p0.fov + (p1.fov - p0.fov) * f;
 
-    this._cameraDesiredPosition.set(0, faceY + offsetY, distance);
-    this._cameraDesiredTarget.set(0, faceY + offsetY - 0.03, 0);
+    const visibleHeight = avatarHeight * frac;
+    const lookAtY = box.max.y - visibleHeight * 0.5;
+    const fovRad = (fov * Math.PI) / 180;
+    const baseDist = (visibleHeight * (1 + margin)) / (2 * Math.tan(fovRad / 2));
+
+    this._cameraDesiredPosition.set(0, lookAtY, baseDist);
+    this._cameraDesiredTarget.set(0, lookAtY, 0);
     this._desiredFOV = fov;
     this._userInteracting = false;
   }
@@ -187,17 +201,14 @@ export class AvatarScene {
   // Initialization
   // ==========================================================================
 
-  /**
-   * Initialize Three.js renderer, scene, camera, lighting, controls, and VFX.
-   * @private
-   */
+  /** @private */
   _init() {
     // ----- Renderer -----
     this._renderer = new THREE.WebGLRenderer({
       canvas: this._canvas,
       antialias: true,
       alpha: true,
-      preserveDrawingBuffer: true  // Required for captureStream
+      preserveDrawingBuffer: true
     });
     this._renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this._renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -224,7 +235,6 @@ export class AvatarScene {
     this._camera.lookAt(0, 1.55, 0);
 
     // ----- Cinematic 3-point lighting + soft shadows -----
-    // Key Light — warm, strong, with shadow
     const keyLight = new THREE.DirectionalLight(0xfff2e0, 2.5);
     keyLight.position.set(2.5, 3.5, 3.0);
     keyLight.castShadow = true;
@@ -240,17 +250,14 @@ export class AvatarScene {
     keyLight.shadow.radius = 4;
     this._scene.add(keyLight);
 
-    // Fill Light — cool, weak, no shadow
     const fillLight = new THREE.DirectionalLight(0xc8d8ff, 0.6);
     fillLight.position.set(-2.5, 1.5, 2.0);
     this._scene.add(fillLight);
 
-    // Rim Light — behind, outlines the subject
     const rimLight = new THREE.DirectionalLight(0xffffff, 1.5);
     rimLight.position.set(0, 2, -3);
     this._scene.add(rimLight);
 
-    // Subtle ambient (prevents pure black shadows)
     this._scene.add(new THREE.AmbientLight(0xffffff, 0.15));
 
     // ----- OrbitControls -----
@@ -275,6 +282,9 @@ export class AvatarScene {
     this._setupPostProcessing();
     this._setupHDRI();
 
+    // ----- v10: BG render target -----
+    this._initBgRenderTarget();
+
     // ----- Resize handling -----
     window.addEventListener('resize', () => this._resize());
   }
@@ -292,16 +302,42 @@ export class AvatarScene {
     if (this._composer) {
       this._composer.setSize(w, h);
     }
+    // v10: Resize BG render target
+    if (this._bgRenderTarget) {
+      const pw = w * Math.min(window.devicePixelRatio, 2);
+      const ph = h * Math.min(window.devicePixelRatio, 2);
+      this._bgRenderTarget.setSize(pw, ph);
+    }
+    if (this._bgCamera) {
+      this._bgCamera.aspect = w / h;
+      this._bgCamera.updateProjectionMatrix();
+    }
+  }
+
+  /**
+   * Create the WebGLRenderTarget used for 3D background compositing.
+   * @private
+   */
+  _initBgRenderTarget() {
+    const w = this._canvas.clientWidth * Math.min(window.devicePixelRatio, 2);
+    const h = this._canvas.clientHeight * Math.min(window.devicePixelRatio, 2);
+
+    this._bgRenderTarget = new THREE.WebGLRenderTarget(Math.max(w, 1), Math.max(h, 1), {
+      format: THREE.RGBAFormat,
+      type: THREE.UnsignedByteType,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      colorSpace: THREE.SRGBColorSpace,
+    });
+
+    console.log(`[AvatarScene] BG RenderTarget: ${Math.round(w)}x${Math.round(h)}`);
   }
 
   // ==========================================================================
   // Post-processing pipeline
   // ==========================================================================
 
-  /**
-   * Build EffectComposer pipeline: RenderPass → SSAO → Bloom → Bokeh → SMAA → Cinematic → Output
-   * @private
-   */
+  /** @private */
   _setupPostProcessing() {
     const w = this._canvas.clientWidth || 800;
     const h = this._canvas.clientHeight || 600;
@@ -310,11 +346,9 @@ export class AvatarScene {
     this._composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this._composer.setSize(w, h);
 
-    // 1. RenderPass
     const renderPass = new RenderPass(this._scene, this._camera);
     this._composer.addPass(renderPass);
 
-    // 2. SSAO
     try {
       this._ssaoPass = new SSAOPass(this._scene, this._camera, w, h);
       this._ssaoPass.kernelRadius = 8;
@@ -326,47 +360,33 @@ export class AvatarScene {
       console.warn('[AvatarScene] SSAO not available:', e.message);
     }
 
-    // 3. Bloom
     this._bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(w, h),
-      0.4,   // strength
-      0.6,   // radius
-      0.85   // threshold
+      new THREE.Vector2(w, h), 0.4, 0.6, 0.85
     );
     this._composer.addPass(this._bloomPass);
 
-    // 4. Bokeh (DOF)
     try {
       this._bokehPass = new BokehPass(this._scene, this._camera, {
-        focus: 1.0,
-        aperture: 0.0001,
-        maxblur: 0.005,
+        focus: 1.0, aperture: 0.0001, maxblur: 0.005,
       });
       this._composer.addPass(this._bokehPass);
     } catch (e) {
       console.warn('[AvatarScene] BokehPass not available:', e.message);
     }
 
-    // 5. SMAA
     const smaaPass = new SMAAPass(w, h);
     this._composer.addPass(smaaPass);
 
-    // 6. Cinematic grade (vignette + film grain)
     this._cinematicPass = this._createCinematicPass();
     this._composer.addPass(this._cinematicPass);
 
-    // 7. OutputPass (tone mapping + sRGB)
     const outputPass = new OutputPass();
     this._composer.addPass(outputPass);
 
     console.log('[AvatarScene] PostProcessing pipeline ready');
   }
 
-  /**
-   * Custom cinematic shader: vignette + film grain + warm tint.
-   * @private
-   * @returns {ShaderPass}
-   */
+  /** @private */
   _createCinematicPass() {
     const shader = {
       uniforms: {
@@ -395,21 +415,14 @@ export class AvatarScene {
 
         void main() {
           vec4 color = texture2D(tDiffuse, vUv);
-
-          // Vignette
           vec2 centered = vUv - 0.5;
           float dist = length(centered);
           float vignette = smoothstep(0.8, 0.2, dist);
           color.rgb *= mix(1.0, vignette, uVignette);
-
-          // Film grain
           float grain = random(vUv + fract(uTime)) * 2.0 - 1.0;
           color.rgb += grain * uGrain;
-
-          // Subtle warm tint
           color.r *= 1.02;
           color.b *= 0.98;
-
           gl_FragColor = color;
         }
       `,
@@ -417,13 +430,9 @@ export class AvatarScene {
     return new ShaderPass(shader);
   }
 
-  /**
-   * Load HDRI environment map for image-based lighting.
-   * @private
-   */
+  /** @private */
   _setupHDRI() {
     const rgbeLoader = new RGBELoader();
-    // Poly Haven Studio HDRI (CC0, 1k, ~1.5MB)
     const url = 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_09_1k.hdr';
 
     rgbeLoader.load(
@@ -431,10 +440,7 @@ export class AvatarScene {
       (texture) => {
         texture.mapping = THREE.EquirectangularReflectionMapping;
         this._scene.environment = texture;
-        // Apply to existing avatar if already loaded
-        if (this._avatar) {
-          this._applyEnvMapIntensity(1.2);
-        }
+        if (this._avatar) this._applyEnvMapIntensity(1.2);
         console.log('[AvatarScene] HDRI environment loaded');
       },
       undefined,
@@ -444,10 +450,7 @@ export class AvatarScene {
     );
   }
 
-  /**
-   * Set envMapIntensity on all avatar materials.
-   * @private
-   */
+  /** @private */
   _applyEnvMapIntensity(intensity) {
     if (!this._avatar) return;
     this._avatar.traverse((obj) => {
@@ -467,11 +470,6 @@ export class AvatarScene {
   // Avatar loading
   // ==========================================================================
 
-  /**
-   * Load avatar from a local File/Blob.
-   * @param {File|Blob} file
-   * @returns {Promise<void>}
-   */
   async loadAvatarFromFile(file) {
     const objectUrl = URL.createObjectURL(file);
     console.log(`[AvatarScene] Loading local file: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
@@ -482,11 +480,6 @@ export class AvatarScene {
     }
   }
 
-  /**
-   * Load avatar from a URL string.
-   * @param {string} url
-   * @returns {Promise<void>}
-   */
   async loadAvatar(url) {
     let finalUrl = url;
     if (finalUrl.includes('readyplayer.me') && !finalUrl.includes('morphTargets=')) {
@@ -497,12 +490,8 @@ export class AvatarScene {
     await this._loadGLTF(finalUrl);
   }
 
-  /**
-   * Internal: load glTF from any source (URL or Object URL).
-   * @private
-   */
+  /** @private */
   async _loadGLTF(url) {
-    // Remove existing avatar
     if (this._avatar) {
       this._gesture.clear();
       this._scene.remove(this._avatar);
@@ -517,15 +506,10 @@ export class AvatarScene {
     this._avatar = gltf.scene;
     this._scene.add(this._avatar);
 
-    // Apply material quality and collect morph/bone data
     this._applyMaterialQuality();
     this._collectMorphAndBones();
-
-    // Register bones for idle gesture animation
     this._gesture.registerAvatar(this._avatar);
-
-    // Frame camera
-    this._frameUpperBody();
+    this._autoFrameAvatar();
 
     this._loaded = true;
     console.log(
@@ -535,46 +519,54 @@ export class AvatarScene {
   }
 
   /**
-   * Frame camera to upper body using the 'upper' preset (instant, no animation).
+   * Auto-frame: choose preset based on model proportions, apply instantly.
    * @private
    */
-  _frameUpperBody() {
-    this.setFramingPreset('upper');
+  _autoFrameAvatar() {
+    const box = new THREE.Box3().setFromObject(this._avatar);
+    const size = box.getSize(new THREE.Vector3());
 
-    // Apply instantly (no lerp animation)
+    // Heuristic: tall models (robots, full figures) start with fullbody
+    const aspect = size.y / Math.max(size.x, 0.01);
+    const defaultPreset = aspect > 2.5 ? 'fullbody' : 'upper';
+    this.setFramingPreset(defaultPreset);
+
+    // Apply immediately (no animation)
     this._camera.position.copy(this._cameraDesiredPosition);
     this._cameraTarget.copy(this._cameraDesiredTarget);
+    this._camera.fov = this._desiredFOV;
+    this._camera.updateProjectionMatrix();
     this._camera.lookAt(this._cameraTarget);
     if (this._controls) {
       this._controls.target.copy(this._cameraTarget);
       this._controls.update();
     }
+
+    console.log(
+      `[AvatarScene] Auto-framed: preset=${defaultPreset}, ` +
+      `aspect=${aspect.toFixed(2)}, size=${size.y.toFixed(2)}m`
+    );
   }
 
   // ==========================================================================
   // Per-frame update
   // ==========================================================================
 
-  /**
-   * Per-frame update. Apply BlendShapes, head pose, camera lerp, then render.
-   * @param {Object<string, number>} blendShapes
-   * @param {Float32Array|null} transformMatrix
-   */
   update(blendShapes, transformMatrix) {
     if (!this._loaded) {
       this._renderer.render(this._scene, this._camera);
       return;
     }
 
-    // 1. Apply BlendShapes to all morph meshes
+    // 1. Apply BlendShapes
     this._applyBlendShapes(blendShapes);
 
-    // 2. Apply head pose to head bone
+    // 2. Head pose
     if (transformMatrix && this._headBone) {
       this._applyHeadPose(transformMatrix);
     }
 
-    // 3. Idle body gesture (uses jawOpen as speech indicator)
+    // 3. Idle body gesture
     const now = performance.now();
     const gestDt = this._lastGestureTime ? now - this._lastGestureTime : 16;
     this._lastGestureTime = now;
@@ -584,7 +576,7 @@ export class AvatarScene {
       this._gesture.update(gestDt, blendShapes);
     }
 
-    // 4. Camera smooth lerp (for framing presets / zoom slider)
+    // 4. Camera smooth lerp
     if (this._cameraDesiredPosition && this._controls) {
       const dist = this._camera.position.distanceTo(this._cameraDesiredPosition);
       if (dist > 0.01 && !this._userInteracting) {
@@ -600,9 +592,26 @@ export class AvatarScene {
       this._controls.update();
     }
 
-    // 5. Render (EffectComposer or direct)
+    // 5. Render
+
+    // 5a. If 3D background scene exists, render it to RenderTarget first
+    if (this._bgScene3D && this._bgCamera && this._bgRenderTarget) {
+      if (this._bgControls && !this._bgCameraLocked) {
+        this._bgControls.update();
+      }
+
+      const currentTarget = this._renderer.getRenderTarget();
+      this._renderer.setRenderTarget(this._bgRenderTarget);
+      this._renderer.clear();
+      this._renderer.render(this._bgScene3D, this._bgCamera);
+      this._renderer.setRenderTarget(currentTarget);
+
+      // Use the rendered background as the avatar scene's background
+      this._scene.background = this._bgRenderTarget.texture;
+    }
+
+    // 5b. Render avatar scene
     if (this._composer && this.vfx.enabled) {
-      // Update shader uniforms
       if (this._cinematicPass) {
         this._cinematicPass.uniforms.uTime.value = performance.now() * 0.001;
         this._cinematicPass.uniforms.uVignette.value = this.vfx.vignette;
@@ -623,7 +632,7 @@ export class AvatarScene {
   }
 
   // ==========================================================================
-  // BlendShapes & Head Pose (unchanged from v5)
+  // BlendShapes & Head Pose
   // ==========================================================================
 
   /** @private */
@@ -687,41 +696,19 @@ export class AvatarScene {
   // Utility
   // ==========================================================================
 
-  /**
-   * Get canvas as MediaStream for virtual camera.
-   * @param {number} fps
-   * @returns {MediaStream}
-   */
   getStream(fps = 30) {
     return this._canvas.captureStream(fps);
   }
 
   // ==========================================================================
-  // Idle Gesture API (public) — v7
+  // Idle Gesture API — v7
   // ==========================================================================
 
-  /** Enable or disable idle body gesture animation */
-  setGestureEnabled(enabled) {
-    this._gesture.enabled = !!enabled;
-  }
+  setGestureEnabled(enabled) { this._gesture.enabled = !!enabled; }
+  setGestureIntensity(value) { this._gesture.intensity = Math.max(0, Math.min(2, value)); }
+  get gestureIntensity() { return this._gesture.intensity; }
 
-  /** Set gesture intensity (0..2, 1=natural) */
-  setGestureIntensity(value) {
-    this._gesture.intensity = Math.max(0, Math.min(2, value));
-  }
-
-  /** Get current gesture intensity */
-  get gestureIntensity() {
-    return this._gesture.intensity;
-  }
-
-  /**
-   * Set the pose tracker for body tracking.
-   * @param {import('./pose-tracker.js').PoseTracker|null} tracker
-   */
-  setPoseTracker(tracker) {
-    this._poseTracker = tracker;
-  }
+  setPoseTracker(tracker) { this._poseTracker = tracker; }
 
   // ==========================================================================
   // Internal helpers (v8 refactor)
@@ -784,7 +771,7 @@ export class AvatarScene {
   }
 
   // ==========================================================================
-  // Background API (v8)
+  // Background API (v8/v9/v10)
   // ==========================================================================
 
   /**
@@ -826,13 +813,11 @@ export class AvatarScene {
   }
 
   /**
-   * Set a 2D image as the background (rendered on a Plane behind the avatar).
-   * @param {string|File} source - URL or File object
+   * Set a 2D image as the background.
+   * @param {string|File} source
    */
   async setBackgroundImage(source) {
-    const url = source instanceof File
-      ? URL.createObjectURL(source)
-      : source;
+    const url = source instanceof File ? URL.createObjectURL(source) : source;
 
     return new Promise((resolve, reject) => {
       new THREE.TextureLoader().load(
@@ -854,13 +839,11 @@ export class AvatarScene {
   }
 
   /**
-   * Set a video as the background (rendered on a Plane, auto-playing loop).
-   * @param {string|File} source - URL or File object
+   * Set a video as the background.
+   * @param {string|File} source
    */
   async setBackgroundVideo(source) {
-    const url = source instanceof File
-      ? URL.createObjectURL(source)
-      : source;
+    const url = source instanceof File ? URL.createObjectURL(source) : source;
 
     const video = document.createElement('video');
     video.src = url;
@@ -889,20 +872,13 @@ export class AvatarScene {
 
   /**
    * Set a 360° equirectangular photo (JPG/PNG) as the spherical background.
-   * Unlike setBackgroundHDRI() which uses RGBELoader for .hdr files,
-   * this uses TextureLoader for regular SDR images.
-   * @param {string|File} source - URL or File object (.jpg / .png)
-   * @returns {Promise<void>}
+   * @param {string|File} source
    */
   async setBackgroundPanorama(source) {
     this._clearAllBackgrounds();
 
-    const url = source instanceof File
-      ? URL.createObjectURL(source)
-      : source;
-    const cleanup = () => {
-      if (source instanceof File) URL.revokeObjectURL(url);
-    };
+    const url = source instanceof File ? URL.createObjectURL(source) : source;
+    const cleanup = () => { if (source instanceof File) URL.revokeObjectURL(url); };
 
     return new Promise((resolve, reject) => {
       new THREE.TextureLoader().load(
@@ -931,82 +907,104 @@ export class AvatarScene {
   }
 
   /**
-   * Load a GLB/GLTF file and place it as a 3D background scene behind the avatar.
-   * Auto-framed: bounding box computed, scaled to target size, centered behind avatar.
-   * @param {string|File} source - URL or File object (.glb / .gltf)
+   * Load a GLB/GLTF file as a 3D background scene.
+   * v10: Renders into a SEPARATE scene with its own camera,
+   * composited behind the avatar via WebGLRenderTarget.
+   * @param {string|File} source
    * @param {Object} [options]
-   * @param {number} [options.targetSize=6.0] - Largest dimension scale target (meters)
-   * @param {number} [options.offsetX=0]
-   * @param {number} [options.offsetY=0]
-   * @param {number} [options.offsetZ=0]
-   * @param {number} [options.rotationY=0] - Y rotation in radians
-   * @returns {Promise<void>}
+   * @param {number} [options.targetSize=8.0]
    */
   async setBackground3DScene(source, options = {}) {
     this._clearAllBackgrounds();
 
-    const url = source instanceof File
-      ? URL.createObjectURL(source)
-      : source;
-    const cleanup = () => {
-      if (source instanceof File) URL.revokeObjectURL(url);
-    };
+    const url = source instanceof File ? URL.createObjectURL(source) : source;
+    const cleanup = () => { if (source instanceof File) URL.revokeObjectURL(url); };
 
     try {
       const loader = new GLTFLoader();
       const gltf = await loader.loadAsync(url);
       const sceneGroup = gltf.scene;
 
-      // Auto-frame: compute bounding box, then scale + position
+      // Create dedicated background scene
+      this._bgScene3D = new THREE.Scene();
+      this._bgScene3D.background = new THREE.Color(0x101018);
+
+      // Copy IBL environment to BG scene
+      if (this._scene.environment) {
+        this._bgScene3D.environment = this._scene.environment;
+      }
+
+      // Add lights to BG scene (independent from avatar)
+      const bgKey = new THREE.DirectionalLight(0xfff4e6, 1.8);
+      bgKey.position.set(3, 5, 4);
+      this._bgScene3D.add(bgKey);
+      const bgFill = new THREE.DirectionalLight(0xc8d8ff, 0.5);
+      bgFill.position.set(-3, 2, 2);
+      this._bgScene3D.add(bgFill);
+      this._bgScene3D.add(new THREE.AmbientLight(0xffffff, 0.3));
+
+      // Auto-frame the model
       sceneGroup.updateMatrixWorld(true);
       const box = new THREE.Box3().setFromObject(sceneGroup);
       const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
 
       const maxDim = Math.max(size.x, size.y, size.z) || 1;
-      const targetSize = options.targetSize ?? 6.0;
+      const targetSize = options.targetSize ?? 8.0;
       const scale = targetSize / maxDim;
       sceneGroup.scale.setScalar(scale);
 
-      // Place scene: X centered, Y floor at 0, Z ~2.5m behind avatar
+      // Center at origin, floor at y=0
       sceneGroup.position.set(
-        -center.x * scale + (options.offsetX ?? 0),
-        -box.min.y * scale + (options.offsetY ?? 0),
-        -center.z * scale - 2.5 + (options.offsetZ ?? 0),
+        -center.x * scale,
+        -box.min.y * scale,
+        -center.z * scale,
       );
-      if (options.rotationY) sceneGroup.rotation.y = options.rotationY;
 
-      // Configure meshes inside the background scene
+      // Configure materials
       sceneGroup.traverse((obj) => {
-        if (obj.isMesh) {
+        if (obj.isMesh && obj.material) {
           obj.receiveShadow = true;
-          obj.castShadow = false;
-
-          if (obj.material) {
-            const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-            for (const m of mats) {
-              if (m.envMapIntensity !== undefined) m.envMapIntensity = 0.8;
-              if (m.map && m.map.colorSpace !== THREE.SRGBColorSpace) {
-                m.map.colorSpace = THREE.SRGBColorSpace;
-              }
-              if (m.side !== undefined) m.side = THREE.FrontSide;
-              m.needsUpdate = true;
-            }
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          for (const m of mats) {
+            if (m.envMapIntensity !== undefined) m.envMapIntensity = 0.8;
+            if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
+            m.needsUpdate = true;
           }
         }
-        // Disable scene lights to avoid double-lighting
         if (obj.isLight) obj.intensity = 0;
       });
 
-      this._scene.add(sceneGroup);
-      this._bgScene = sceneGroup;
+      this._bgScene3D.add(sceneGroup);
+      this._bgModelRoot = sceneGroup;
+
+      // Create background camera
+      const aspect = this._canvas.clientWidth / this._canvas.clientHeight;
+      this._bgCamera = new THREE.PerspectiveCamera(45, aspect, 0.1, 200);
+
+      const scaledSize = size.clone().multiplyScalar(scale);
+      const maxScaledDim = Math.max(scaledSize.x, scaledSize.y, scaledSize.z);
+      const camDist = maxScaledDim * 1.2;
+      this._bgCamera.position.set(0, scaledSize.y * 0.4, camDist);
+      this._bgCamera.lookAt(0, scaledSize.y * 0.35, 0);
+
+      // Background OrbitControls (separate from avatar controls)
+      this._bgControls = new OrbitControls(this._bgCamera, this._canvas);
+      this._bgControls.enableDamping = true;
+      this._bgControls.dampingFactor = 0.08;
+      this._bgControls.target.set(0, scaledSize.y * 0.35, 0);
+      this._bgControls.enabled = true;
+      this._bgCameraLocked = false;
+
+      // Disable avatar OrbitControls while BG is being positioned
+      if (this._controls) this._controls.enabled = false;
+
       this._bgMode = '3dscene';
-      this._scene.background = new THREE.Color(0x101018);
 
       cleanup();
       console.log(
-        `[AvatarScene] 3D scene background loaded ` +
-        `(scaled ${scale.toFixed(2)}x, bbox ${size.x.toFixed(2)}×${size.y.toFixed(2)}×${size.z.toFixed(2)})`
+        `[AvatarScene] 3D BG scene loaded into separate scene ` +
+        `(scale ${scale.toFixed(2)}x). Use lockBgCamera() when done positioning.`
       );
     } catch (err) {
       cleanup();
@@ -1015,10 +1013,30 @@ export class AvatarScene {
     }
   }
 
-  /**
-   * Create a Plane mesh behind the avatar with the given texture.
-   * @private
-   */
+  /** Lock the background camera position. Re-enables avatar OrbitControls. */
+  lockBgCamera() {
+    if (this._bgControls) this._bgControls.enabled = false;
+    this._bgCameraLocked = true;
+    if (this._controls) this._controls.enabled = true;
+    console.log('[AvatarScene] BG camera locked');
+  }
+
+  /** Unlock the background camera for repositioning. */
+  unlockBgCamera() {
+    if (this._bgControls) this._bgControls.enabled = true;
+    this._bgCameraLocked = false;
+    if (this._controls) this._controls.enabled = false;
+    console.log('[AvatarScene] BG camera unlocked for repositioning');
+  }
+
+  /** @type {boolean} */
+  get isBgCameraLocked() { return this._bgCameraLocked; }
+
+  // ==========================================================================
+  // Background helpers
+  // ==========================================================================
+
+  /** @private */
   _createBackgroundPlane(texture) {
     const distanceFromCamera = 5.0;
     const vFov = (this._camera.fov * Math.PI) / 180;
@@ -1042,11 +1060,11 @@ export class AvatarScene {
   }
 
   /**
-   * Clear ALL background resources (plane, 3D scene, video, panorama texture).
+   * Clear ALL background resources.
    * @private
    */
   _clearAllBackgrounds() {
-    // 1. Plane mesh (image / video backgrounds)
+    // 1. Plane mesh
     if (this._bgPlane) {
       this._scene.remove(this._bgPlane);
       this._bgPlane.geometry.dispose();
@@ -1065,24 +1083,33 @@ export class AvatarScene {
     }
     this._bgResource = null;
 
-    // 3. 3D scene background
-    if (this._bgScene) {
-      this._scene.remove(this._bgScene);
-      this._bgScene.traverse((obj) => {
+    // 3. 3D scene background (v10: separate scene)
+    if (this._bgScene3D) {
+      this._bgScene3D.traverse((obj) => {
         if (obj.geometry) obj.geometry.dispose();
         if (obj.material) {
           const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
           for (const m of mats) {
             for (const key of ['map', 'normalMap', 'roughnessMap', 'metalnessMap',
                                 'aoMap', 'emissiveMap', 'alphaMap']) {
-              if (m[key] && typeof m[key].dispose === 'function') m[key].dispose();
+              if (m[key]?.dispose) m[key].dispose();
             }
             m.dispose();
           }
         }
       });
-      this._bgScene = null;
+      this._bgScene3D = null;
+      this._bgModelRoot = null;
     }
+    if (this._bgControls) {
+      this._bgControls.dispose();
+      this._bgControls = null;
+    }
+    this._bgCamera = null;
+    this._bgCameraLocked = false;
+
+    // Re-enable avatar controls
+    if (this._controls) this._controls.enabled = true;
 
     // 4. Equirect texture (panorama / HDRI background)
     if (this._scene.background && this._scene.background.dispose) {
@@ -1093,7 +1120,7 @@ export class AvatarScene {
     this._scene.background = null;
   }
 
-  /** Preset HDRI list (CC0 from Poly Haven) */
+  /** Preset HDRI list */
   get BACKGROUND_PRESETS() {
     return [
       { name: 'ダークスタジオ', mode: 'color', value: 0x101018 },

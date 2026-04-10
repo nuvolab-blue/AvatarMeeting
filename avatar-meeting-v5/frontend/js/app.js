@@ -162,6 +162,7 @@ class App {
             await this.scene.setBackgroundHDRI(preset.url);
           }
           this._hideLoading();
+          this._hideBgCameraControls();
           this._log('s', `背景: ${preset.name}`);
         } catch (err) {
           this._hideLoading();
@@ -180,6 +181,7 @@ class App {
         if (!file) return;
         try {
           await this.scene.setBackgroundImage(file);
+          this._hideBgCameraControls();
           this._log('s', `画像背景: ${file.name}`);
         } catch (err) {
           this._log('e', err.message);
@@ -198,6 +200,7 @@ class App {
         if (!file) return;
         try {
           await this.scene.setBackgroundVideo(file);
+          this._hideBgCameraControls();
           this._log('s', `動画背景: ${file.name}`);
         } catch (err) {
           this._log('e', err.message);
@@ -218,6 +221,7 @@ class App {
         try {
           await this.scene.setBackgroundPanorama(file);
           this._hideLoading();
+          this._hideBgCameraControls();
           this._log('s', `360°パノラマ背景: ${file.name}`);
         } catch (err) {
           this._hideLoading();
@@ -240,11 +244,40 @@ class App {
           await this.scene.setBackground3DScene(file);
           this._hideLoading();
           this._log('s', `3Dシーン背景: ${file.name}`);
+          this._showBgCameraControls();
+          this._log('i', '背景の視点をマウスで調整し「視点を固定」を押してください');
         } catch (err) {
           this._hideLoading();
           this._log('e', `読み込み失敗: ${err.message}`);
         }
         bg3dFile.value = '';
+      });
+    }
+
+    // ----- Background camera lock/unlock -----
+    this._bgCamControls = document.getElementById('bg-camera-controls');
+    this._bgCamLabel = document.getElementById('bg-camera-label');
+    this._bgCamLockBtn = document.getElementById('bg-cam-lock');
+    this._bgCamUnlockBtn = document.getElementById('bg-cam-unlock');
+
+    if (this._bgCamLockBtn) {
+      this._bgCamLockBtn.addEventListener('click', () => {
+        this.scene.lockBgCamera();
+        this._bgCamLockBtn.style.display = 'none';
+        this._bgCamUnlockBtn.style.display = '';
+        this._bgCamLabel.textContent = '🔒 背景カメラ: 固定';
+        this._bgCamLabel.parentElement.classList.add('locked');
+        this._log('s', '背景カメラを固定しました');
+      });
+    }
+    if (this._bgCamUnlockBtn) {
+      this._bgCamUnlockBtn.addEventListener('click', () => {
+        this.scene.unlockBgCamera();
+        this._bgCamUnlockBtn.style.display = 'none';
+        this._bgCamLockBtn.style.display = '';
+        this._bgCamLabel.textContent = '🔓 背景カメラ: 調整中';
+        this._bgCamLabel.parentElement.classList.remove('locked');
+        this._log('i', '背景カメラを再調整できます');
       });
     }
 
@@ -254,7 +287,7 @@ class App {
     // ----- Start main loop -----
     this._loop();
 
-    this._log('i', 'Avatar Meeting Studio v9 ready');
+    this._log('i', 'Avatar Meeting Studio v10 ready');
   }
 
   /**
@@ -421,6 +454,22 @@ class App {
         sh.textContent = `yaw:${yaw}\u00B0`;
       }
     }
+  }
+
+  /** Show background camera controls (after 3D scene load). @private */
+  _showBgCameraControls() {
+    if (!this._bgCamControls) return;
+    this._bgCamControls.style.display = '';
+    this._bgCamLockBtn.style.display = '';
+    this._bgCamUnlockBtn.style.display = 'none';
+    this._bgCamLabel.textContent = '🔓 背景カメラ: 調整中';
+    this._bgCamLabel.parentElement.classList.remove('locked');
+  }
+
+  /** Hide background camera controls. @private */
+  _hideBgCameraControls() {
+    if (!this._bgCamControls) return;
+    this._bgCamControls.style.display = 'none';
   }
 
   /** @private */

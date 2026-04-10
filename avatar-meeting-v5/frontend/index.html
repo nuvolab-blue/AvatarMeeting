@@ -19,7 +19,7 @@
 <body>
   <header class="header">
     <h1>Avatar Meeting Studio</h1>
-    <span class="badge">v9 · 360° Panorama + 3D Scene</span>
+    <span class="badge">v10 · Dual-Scene + Dynamic Framing</span>
   </header>
 
   <div class="main">
@@ -160,6 +160,16 @@
           360°: パノラマ写真(JPG/PNG)<br>
           3Dシーン: GLB/GLTF (~50MB 以下推奨)
         </p>
+        <div id="bg-camera-controls" style="display:none; margin-top:10px;">
+          <div class="bg-camera-status">
+            <span id="bg-camera-label">🔓 背景カメラ: 調整中</span>
+          </div>
+          <div class="file-upload-row" style="margin-top:6px;">
+            <button id="bg-cam-lock" class="btn btn-secondary">🔒 視点を固定</button>
+            <button id="bg-cam-unlock" class="btn btn-secondary" style="display:none">🔓 視点を再調整</button>
+          </div>
+          <p class="hint">まず背景の視点をマウスで調整し、「視点を固定」を押してください。固定後はアバターのカメラ操作に切り替わります。</p>
+        </div>
       </div>
 
       <!-- Idle Gesture -->
