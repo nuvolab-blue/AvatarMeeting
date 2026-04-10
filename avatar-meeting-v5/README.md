@@ -109,6 +109,71 @@ v8 からローカル GLB ファイルのアップロードに対応しました
 動画背景を使う場合、MP4(H.264)か WebM が確実に動作します。
 解像度は 1080p 以下を推奨。
 
+## 背景タイプ別の素材入手先
+
+### 1. 360° パノラマ写真 (JPG/PNG)
+
+球面マッピング用の equirectangular（2:1 の長方形）画像が必要です。
+解像度は 4K (4096×2048) 以上を推奨。
+
+**無料素材サイト (CC0 / Public Domain):**
+
+- **Poly Haven** — https://polyhaven.com/hdris
+  各 HDRI ページで「JPG 4K」を選択すれば SDR 版がダウンロードできます。
+  屋内スタジオ、屋外、夕焼け、夜景など豊富。
+
+- **Wikimedia Commons** — https://commons.wikimedia.org/wiki/Category:360°_panoramas
+  歴史的建造物、観光地など。ライセンス確認必須。
+
+- **Flickr Equirectangular pool** — https://www.flickr.com/groups/equirectangular/
+  個人撮影が多いのでライセンス確認必須。
+
+**Tips:**
+- ファイルサイズは 5-15MB が標準
+- HDR 版 (.hdr) を使いたい場合は「HDRI」プリセットから選択してください
+- ロード後、被写界深度（DoF）を有効にすると背景がボケて映画的になります
+
+### 2. 3D シーンモデル (GLB/GLTF)
+
+完全な 3D 空間として読み込まれ、視差（parallax）が出ます。
+被写界深度が物理的に正しくかかります。
+
+**無料素材サイト:**
+
+- **Poly Haven Models** — https://polyhaven.com/models
+  CC0 ライセンス、室内シーンや家具など。
+  「Living Room」「Modern Office」などの完成シーンがあります。
+
+- **Sketchfab** — https://sketchfab.com/3d-models?features=downloadable&licenses=322a749bcfa841b29dff1e8a1bb74b0b
+  CC Attribution の絞り込み済み。
+  「office interior」「cafe」「studio」などで検索。
+  ダウンロード時に必ず GLB 形式を選択してください。
+
+- **Quaternius** — https://quaternius.com/
+  CC0 ライセンス、ローポリ・スタイライズ系。
+
+- **Kenney** — https://kenney.nl/assets
+  CC0 ライセンス、ゲームアセット。
+
+**Tips:**
+- ファイルサイズは 50MB 以下を推奨（それ以上は読み込みに時間がかかります）
+- 「室内シーン」「インテリア」を選ぶとアバターと馴染みやすい
+- スケールは自動調整されますが、極端に大きい/小さいシーンは見た目で判断してください
+- シーン内の既存ライトは自動的に無効化されます（アバターの 3 点照明を優先）
+- 背景が暗すぎる場合は HDRI プリセット（夕焼けやスタジオ）を併用すると IBL で明るくなります
+
+### 3. 背景の組み合わせ
+
+- **HDRI（IBL）+ 3D シーン背景**: 最も自然なライティング。HDRI が環境光として機能し、3D シーンがその光を浴びます。
+- **HDRI（IBL）+ 360° パノラマ**: パノラマは見た目だけ、HDRI は光のみ。パノラマと HDRI が違っても OK。
+
+### 仮想カメラへの出力
+
+すべての背景タイプ（画像/動画/パノラマ/3D シーン）は
+`canvas.captureStream()` 経由で OBS Virtual Camera にそのまま送信されます。
+3D シーンの場合は被写界深度も含めて出力されるため、
+Meet/Slack の相手から見ても映画的な見た目になります。
+
 ## アーキテクチャ
 
 ```

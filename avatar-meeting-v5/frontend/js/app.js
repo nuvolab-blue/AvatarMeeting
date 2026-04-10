@@ -206,13 +206,55 @@ class App {
       });
     }
 
+    // 360° Panorama background
+    const bgPanoBtn = document.getElementById('bg-pano-btn');
+    const bgPanoFile = document.getElementById('bg-pano-file');
+    if (bgPanoBtn && bgPanoFile) {
+      bgPanoBtn.addEventListener('click', () => bgPanoFile.click());
+      bgPanoFile.addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        this._showLoading(`360°パノラマ読み込み中: ${file.name}`);
+        try {
+          await this.scene.setBackgroundPanorama(file);
+          this._hideLoading();
+          this._log('s', `360°パノラマ背景: ${file.name}`);
+        } catch (err) {
+          this._hideLoading();
+          this._log('e', `読み込み失敗: ${err.message}`);
+        }
+        bgPanoFile.value = '';
+      });
+    }
+
+    // 3D Scene background
+    const bg3dBtn = document.getElementById('bg-3d-btn');
+    const bg3dFile = document.getElementById('bg-3d-file');
+    if (bg3dBtn && bg3dFile) {
+      bg3dBtn.addEventListener('click', () => bg3dFile.click());
+      bg3dFile.addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        this._showLoading(`3Dシーン読み込み中: ${file.name}\n(時間がかかる場合があります)`);
+        try {
+          await this.scene.setBackground3DScene(file);
+          this._hideLoading();
+          this._log('s', `3Dシーン背景: ${file.name}`);
+        } catch (err) {
+          this._hideLoading();
+          this._log('e', `読み込み失敗: ${err.message}`);
+        }
+        bg3dFile.value = '';
+      });
+    }
+
     // ----- Auto-load default avatar -----
     this._loadAvatar();
 
     // ----- Start main loop -----
     this._loop();
 
-    this._log('i', 'Avatar Meeting Studio v8 ready');
+    this._log('i', 'Avatar Meeting Studio v9 ready');
   }
 
   /**

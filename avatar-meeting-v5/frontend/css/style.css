@@ -304,7 +304,11 @@ body {
 /* File upload row */
 .file-upload-row {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+}
+.file-upload-row .btn,
+.file-upload-row .btn-secondary {
+  flex: 1;
 }
 
 .btn-secondary {

@@ -19,7 +19,7 @@
 <body>
   <header class="header">
     <h1>Avatar Meeting Studio</h1>
-    <span class="badge">v8 · Retargeting + VFX Background</span>
+    <span class="badge">v9 · 360° Panorama + 3D Scene</span>
   </header>
 
   <div class="main">
@@ -147,9 +147,19 @@
           <button id="bg-image-btn" class="btn btn-secondary">🖼 画像</button>
           <button id="bg-video-btn" class="btn btn-secondary">🎬 動画</button>
         </div>
+        <div class="file-upload-row" style="margin-top:6px">
+          <button id="bg-pano-btn" class="btn btn-secondary">🌐 360°</button>
+          <button id="bg-3d-btn" class="btn btn-secondary">🎭 3Dシーン</button>
+        </div>
         <input type="file" id="bg-image-file" accept="image/*" style="display:none">
         <input type="file" id="bg-video-file" accept="video/*" style="display:none">
-        <p class="hint">JPG/PNG 画像、MP4/WebM 動画に対応</p>
+        <input type="file" id="bg-pano-file" accept="image/jpeg,image/png" style="display:none">
+        <input type="file" id="bg-3d-file" accept=".glb,.gltf" style="display:none">
+        <p class="hint">
+          画像/動画: 平面背景<br>
+          360°: パノラマ写真(JPG/PNG)<br>
+          3Dシーン: GLB/GLTF (~50MB 以下推奨)
+        </p>
       </div>
 
       <!-- Idle Gesture -->

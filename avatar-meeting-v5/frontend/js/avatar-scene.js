@@ -105,12 +105,14 @@ export class AvatarScene {
       filmGrain: 0.05,
     };
 
-    // ===== v8: Background system =====
+    // ===== v8/v9: Background system =====
     /** @private {THREE.Mesh|null} Background plane for 2D image/video */
     this._bgPlane = null;
     /** @private {THREE.Texture|HTMLVideoElement|null} Current background resource */
     this._bgResource = null;
-    /** @private Current background mode */
+    /** @private {THREE.Object3D|null} 3D scene background (loaded from GLB/GLTF) */
+    this._bgScene = null;
+    /** @private {'color'|'hdri'|'image'|'video'|'panorama'|'3dscene'} */
     this._bgMode = 'color';
 
     this._init();
@@ -790,7 +792,7 @@ export class AvatarScene {
    * @param {string|number} color
    */
   setBackgroundColor(color) {
-    this._clearBackgroundPlane();
+    this._clearAllBackgrounds();
     this._scene.background = new THREE.Color(color);
     this._bgMode = 'color';
   }
@@ -800,7 +802,7 @@ export class AvatarScene {
    * @param {string} url - URL to .hdr file
    */
   async setBackgroundHDRI(url) {
-    this._clearBackgroundPlane();
+    this._clearAllBackgrounds();
     return new Promise((resolve, reject) => {
       new RGBELoader().load(
         url,
@@ -837,7 +839,7 @@ export class AvatarScene {
         url,
         (texture) => {
           texture.colorSpace = THREE.SRGBColorSpace;
-          this._clearBackgroundPlane();
+          this._clearAllBackgrounds();
           this._createBackgroundPlane(texture);
           this._bgMode = 'image';
           this._scene.background = new THREE.Color(0x000000);
@@ -877,12 +879,140 @@ export class AvatarScene {
     const texture = new THREE.VideoTexture(video);
     texture.colorSpace = THREE.SRGBColorSpace;
 
-    this._clearBackgroundPlane();
+    this._clearAllBackgrounds();
     this._createBackgroundPlane(texture);
     this._bgResource = video;
     this._bgMode = 'video';
     this._scene.background = new THREE.Color(0x000000);
     console.log('[AvatarScene] Video background set');
+  }
+
+  /**
+   * Set a 360° equirectangular photo (JPG/PNG) as the spherical background.
+   * Unlike setBackgroundHDRI() which uses RGBELoader for .hdr files,
+   * this uses TextureLoader for regular SDR images.
+   * @param {string|File} source - URL or File object (.jpg / .png)
+   * @returns {Promise<void>}
+   */
+  async setBackgroundPanorama(source) {
+    this._clearAllBackgrounds();
+
+    const url = source instanceof File
+      ? URL.createObjectURL(source)
+      : source;
+    const cleanup = () => {
+      if (source instanceof File) URL.revokeObjectURL(url);
+    };
+
+    return new Promise((resolve, reject) => {
+      new THREE.TextureLoader().load(
+        url,
+        (texture) => {
+          texture.mapping = THREE.EquirectangularReflectionMapping;
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.minFilter = THREE.LinearFilter;
+          texture.magFilter = THREE.LinearFilter;
+
+          this._scene.background = texture;
+          this._bgMode = 'panorama';
+
+          cleanup();
+          console.log('[AvatarScene] Panorama background loaded');
+          resolve();
+        },
+        undefined,
+        (err) => {
+          cleanup();
+          console.warn('[AvatarScene] Panorama load failed:', err);
+          reject(err);
+        }
+      );
+    });
+  }
+
+  /**
+   * Load a GLB/GLTF file and place it as a 3D background scene behind the avatar.
+   * Auto-framed: bounding box computed, scaled to target size, centered behind avatar.
+   * @param {string|File} source - URL or File object (.glb / .gltf)
+   * @param {Object} [options]
+   * @param {number} [options.targetSize=6.0] - Largest dimension scale target (meters)
+   * @param {number} [options.offsetX=0]
+   * @param {number} [options.offsetY=0]
+   * @param {number} [options.offsetZ=0]
+   * @param {number} [options.rotationY=0] - Y rotation in radians
+   * @returns {Promise<void>}
+   */
+  async setBackground3DScene(source, options = {}) {
+    this._clearAllBackgrounds();
+
+    const url = source instanceof File
+      ? URL.createObjectURL(source)
+      : source;
+    const cleanup = () => {
+      if (source instanceof File) URL.revokeObjectURL(url);
+    };
+
+    try {
+      const loader = new GLTFLoader();
+      const gltf = await loader.loadAsync(url);
+      const sceneGroup = gltf.scene;
+
+      // Auto-frame: compute bounding box, then scale + position
+      sceneGroup.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(sceneGroup);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+
+      const maxDim = Math.max(size.x, size.y, size.z) || 1;
+      const targetSize = options.targetSize ?? 6.0;
+      const scale = targetSize / maxDim;
+      sceneGroup.scale.setScalar(scale);
+
+      // Place scene: X centered, Y floor at 0, Z ~2.5m behind avatar
+      sceneGroup.position.set(
+        -center.x * scale + (options.offsetX ?? 0),
+        -box.min.y * scale + (options.offsetY ?? 0),
+        -center.z * scale - 2.5 + (options.offsetZ ?? 0),
+      );
+      if (options.rotationY) sceneGroup.rotation.y = options.rotationY;
+
+      // Configure meshes inside the background scene
+      sceneGroup.traverse((obj) => {
+        if (obj.isMesh) {
+          obj.receiveShadow = true;
+          obj.castShadow = false;
+
+          if (obj.material) {
+            const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+            for (const m of mats) {
+              if (m.envMapIntensity !== undefined) m.envMapIntensity = 0.8;
+              if (m.map && m.map.colorSpace !== THREE.SRGBColorSpace) {
+                m.map.colorSpace = THREE.SRGBColorSpace;
+              }
+              if (m.side !== undefined) m.side = THREE.FrontSide;
+              m.needsUpdate = true;
+            }
+          }
+        }
+        // Disable scene lights to avoid double-lighting
+        if (obj.isLight) obj.intensity = 0;
+      });
+
+      this._scene.add(sceneGroup);
+      this._bgScene = sceneGroup;
+      this._bgMode = '3dscene';
+      this._scene.background = new THREE.Color(0x101018);
+
+      cleanup();
+      console.log(
+        `[AvatarScene] 3D scene background loaded ` +
+        `(scaled ${scale.toFixed(2)}x, bbox ${size.x.toFixed(2)}×${size.y.toFixed(2)}×${size.z.toFixed(2)})`
+      );
+    } catch (err) {
+      cleanup();
+      console.error('[AvatarScene] 3D scene load failed:', err);
+      throw err;
+    }
   }
 
   /**
@@ -911,8 +1041,12 @@ export class AvatarScene {
     this._scene.add(this._bgPlane);
   }
 
-  /** @private */
-  _clearBackgroundPlane() {
+  /**
+   * Clear ALL background resources (plane, 3D scene, video, panorama texture).
+   * @private
+   */
+  _clearAllBackgrounds() {
+    // 1. Plane mesh (image / video backgrounds)
     if (this._bgPlane) {
       this._scene.remove(this._bgPlane);
       this._bgPlane.geometry.dispose();
@@ -920,11 +1054,43 @@ export class AvatarScene {
       this._bgPlane.material.dispose();
       this._bgPlane = null;
     }
+
+    // 2. Video resource
     if (this._bgResource && this._bgResource.tagName === 'VIDEO') {
-      this._bgResource.pause();
-      this._bgResource.src = '';
+      try {
+        this._bgResource.pause();
+        this._bgResource.src = '';
+        this._bgResource.load();
+      } catch (e) { /* ignore */ }
     }
     this._bgResource = null;
+
+    // 3. 3D scene background
+    if (this._bgScene) {
+      this._scene.remove(this._bgScene);
+      this._bgScene.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          for (const m of mats) {
+            for (const key of ['map', 'normalMap', 'roughnessMap', 'metalnessMap',
+                                'aoMap', 'emissiveMap', 'alphaMap']) {
+              if (m[key] && typeof m[key].dispose === 'function') m[key].dispose();
+            }
+            m.dispose();
+          }
+        }
+      });
+      this._bgScene = null;
+    }
+
+    // 4. Equirect texture (panorama / HDRI background)
+    if (this._scene.background && this._scene.background.dispose) {
+      if (this._scene.background !== this._scene.environment) {
+        try { this._scene.background.dispose(); } catch (e) { /* ignore */ }
+      }
+    }
+    this._scene.background = null;
   }
 
   /** Preset HDRI list (CC0 from Poly Haven) */
