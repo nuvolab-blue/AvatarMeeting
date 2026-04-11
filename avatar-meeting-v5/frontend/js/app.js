@@ -394,7 +394,7 @@ class App {
       this._vcamBtn.textContent = '🔄 仮想カメラ OFF';
       this._vcamBtn.classList.add('active');
       this._lb.style.display = 'flex';
-      this._log('s', '仮想カメラ ON (window._avatarStream)');
+      this._log('s', '仮想カメラ ON — OBS Virtual Camera 経由で Meet に出力');
     } else {
       this.vcam.stop();
       this._vcamBtn.textContent = '🔄 仮想カメラ ON';
