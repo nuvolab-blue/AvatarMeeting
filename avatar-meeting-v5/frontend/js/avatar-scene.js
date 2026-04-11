@@ -5,6 +5,7 @@
  * v8: Background system (color, HDRI, image, video), material refactor
  * v9: 360° panorama + 3D scene backgrounds
  * v10: Dual-scene rendering (separate BG camera), dynamic framing presets
+ * v11: 1€ filter jitter removal, SSS skin material, VSM shadow maps
  */
 
 import * as THREE from 'three';
@@ -218,7 +219,7 @@ export class AvatarScene {
 
     // ----- Shadow maps -----
     this._renderer.shadowMap.enabled = true;
-    this._renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this._renderer.shadowMap.type = THREE.VSMShadowMap;
 
     // ----- Scene -----
     this._scene = new THREE.Scene();
@@ -235,30 +236,35 @@ export class AvatarScene {
     this._camera.lookAt(0, 1.55, 0);
 
     // ----- Cinematic 3-point lighting + soft shadows -----
-    const keyLight = new THREE.DirectionalLight(0xfff2e0, 2.5);
-    keyLight.position.set(2.5, 3.5, 3.0);
+    const keyLight = new THREE.DirectionalLight(0xfff4e6, 1.5);
+    keyLight.position.set(2, 3, 4);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.width = 2048;
     keyLight.shadow.mapSize.height = 2048;
     keyLight.shadow.camera.near = 0.1;
-    keyLight.shadow.camera.far = 10;
-    keyLight.shadow.camera.left = -2;
-    keyLight.shadow.camera.right = 2;
-    keyLight.shadow.camera.top = 2;
+    keyLight.shadow.camera.far = 15;
+    keyLight.shadow.camera.left = -3;
+    keyLight.shadow.camera.right = 3;
+    keyLight.shadow.camera.top = 4;
     keyLight.shadow.camera.bottom = -2;
     keyLight.shadow.bias = -0.0001;
-    keyLight.shadow.radius = 4;
+    keyLight.shadow.normalBias = 0.02;
+    keyLight.shadow.radius = 8;
+    keyLight.shadow.blurSamples = 16;
     this._scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0xc8d8ff, 0.6);
-    fillLight.position.set(-2.5, 1.5, 2.0);
+    const fillLight = new THREE.DirectionalLight(0xc8d8ff, 0.5);
+    fillLight.position.set(-2, 1.5, 3);
     this._scene.add(fillLight);
 
     const rimLight = new THREE.DirectionalLight(0xffffff, 1.5);
     rimLight.position.set(0, 2, -3);
     this._scene.add(rimLight);
 
-    this._scene.add(new THREE.AmbientLight(0xffffff, 0.15));
+    // HemisphereLight: sky (blue) top + ground (warm) bounce
+    const hemiLight = new THREE.HemisphereLight(0xb1d4ff, 0xb89878, 0.4);
+    hemiLight.position.set(0, 5, 0);
+    this._scene.add(hemiLight);
 
     // ----- OrbitControls -----
     this._controls = new OrbitControls(this._camera, this._canvas);
@@ -718,23 +724,89 @@ export class AvatarScene {
   _applyMaterialQuality() {
     if (!this._avatar) return;
     this._avatar.traverse((obj) => {
-      if (obj.isMesh) {
-        obj.castShadow = true;
-        obj.receiveShadow = true;
-        if (obj.material) {
-          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-          for (const m of mats) {
-            if (m.envMapIntensity !== undefined) m.envMapIntensity = 1.2;
-            if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
-            if (obj.name && /head|skin|body/i.test(obj.name)) {
-              if (m.roughness !== undefined) m.roughness = 0.65;
-              if (m.metalness !== undefined) m.metalness = 0.0;
-            }
-            m.needsUpdate = true;
-          }
+      if (!obj.isMesh) return;
+      obj.castShadow = true;
+      obj.receiveShadow = true;
+      if (!obj.material) return;
+
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      const isSkin = obj.name && /head|skin|body|face|wolf3d_(head|body)/i.test(obj.name);
+      const isHair = obj.name && /hair|wolf3d_hair/i.test(obj.name);
+
+      for (let i = 0; i < mats.length; i++) {
+        let m = mats[i];
+
+        // Convert StandardMaterial → PhysicalMaterial for skin (SSS approximation)
+        if (isSkin && m.isMeshStandardMaterial && !m.isMeshPhysicalMaterial) {
+          const physical = this._toPhysicalMaterial(m);
+          // SSS via sheen + clearcoat (avoids transmission shader issues)
+          physical.sheen = 0.4;
+          physical.sheenColor = new THREE.Color(0xffaa88);  // warm subsurface tint
+          physical.sheenRoughness = 0.6;
+          physical.clearcoat = 0.15;            // subtle skin oil layer
+          physical.clearcoatRoughness = 0.5;
+          physical.roughness = 0.55;
+          physical.metalness = 0.0;
+          physical.envMapIntensity = 1.4;
+          if (Array.isArray(obj.material)) obj.material[i] = physical;
+          else obj.material = physical;
+          m = physical;
         }
+
+        // Hair: anisotropic highlights
+        if (isHair && m.isMeshStandardMaterial && !m.isMeshPhysicalMaterial) {
+          const physical = this._toPhysicalMaterial(m);
+          physical.anisotropy = 0.8;
+          physical.anisotropyRotation = Math.PI / 2;
+          physical.roughness = 0.45;
+          physical.envMapIntensity = 1.0;
+          if (Array.isArray(obj.material)) obj.material[i] = physical;
+          else obj.material = physical;
+          m = physical;
+        }
+
+        // Common settings for all materials
+        if (m.envMapIntensity !== undefined && !isSkin && !isHair) {
+          m.envMapIntensity = 1.2;
+        }
+        if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
+        m.needsUpdate = true;
       }
     });
+
+    console.log('[AvatarScene] Material quality applied (SSS skin + anisotropic hair)');
+  }
+
+  /**
+   * Safely convert a MeshStandardMaterial to MeshPhysicalMaterial
+   * by manually copying base properties (avoids .copy() crash in Three.js 0.160).
+   * @param {THREE.MeshStandardMaterial} src
+   * @returns {THREE.MeshPhysicalMaterial}
+   * @private
+   */
+  _toPhysicalMaterial(src) {
+    const dst = new THREE.MeshPhysicalMaterial();
+    // Transfer standard material properties
+    if (src.map) dst.map = src.map;
+    if (src.normalMap) { dst.normalMap = src.normalMap; dst.normalScale.copy(src.normalScale); }
+    if (src.aoMap) { dst.aoMap = src.aoMap; dst.aoMapIntensity = src.aoMapIntensity; }
+    if (src.emissiveMap) dst.emissiveMap = src.emissiveMap;
+    if (src.roughnessMap) dst.roughnessMap = src.roughnessMap;
+    if (src.metalnessMap) dst.metalnessMap = src.metalnessMap;
+    if (src.alphaMap) dst.alphaMap = src.alphaMap;
+    if (src.envMap) dst.envMap = src.envMap;
+    dst.color.copy(src.color);
+    dst.emissive.copy(src.emissive);
+    dst.roughness = src.roughness;
+    dst.metalness = src.metalness;
+    dst.opacity = src.opacity;
+    dst.transparent = src.transparent;
+    dst.side = src.side;
+    dst.alphaTest = src.alphaTest;
+    dst.depthWrite = src.depthWrite;
+    dst.visible = src.visible;
+    dst.name = src.name;
+    return dst;
   }
 
   /** @private */

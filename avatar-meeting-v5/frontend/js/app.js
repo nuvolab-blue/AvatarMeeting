@@ -287,7 +287,7 @@ class App {
     // ----- Start main loop -----
     this._loop();
 
-    this._log('i', 'Avatar Meeting Studio v10 ready');
+    this._log('i', 'Avatar Meeting Studio v11 ready');
   }
 
   /**

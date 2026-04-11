@@ -12,6 +12,7 @@ import {
   PoseLandmarker,
   FilesetResolver
 } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/vision_bundle.mjs';
+import { OneEuroFilter } from './one-euro-filter.js';
 
 export class PoseTracker {
   constructor() {
@@ -28,6 +29,9 @@ export class PoseTracker {
     this.worldLandmarks = null;
     /** @type {boolean} Whether a pose is currently detected */
     this.poseDetected = false;
+
+    // 1€ filters for world landmarks (one trio per landmark, lazy-init)
+    this._lmFilters = new Map();
   }
 
   /**
@@ -120,7 +124,23 @@ export class PoseTracker {
         try {
           const result = this._landmarker.detectForVideo(this._video, now);
           if (result.worldLandmarks && result.worldLandmarks.length > 0) {
-            this.worldLandmarks = result.worldLandmarks[0];
+            const lms = result.worldLandmarks[0];
+            const t = performance.now() / 1000;
+            for (let i = 0; i < lms.length; i++) {
+              let trio = this._lmFilters.get(i);
+              if (!trio) {
+                trio = {
+                  fx: new OneEuroFilter({ minCutoff: 1.0, beta: 0.05 }),
+                  fy: new OneEuroFilter({ minCutoff: 1.0, beta: 0.05 }),
+                  fz: new OneEuroFilter({ minCutoff: 1.0, beta: 0.05 }),
+                };
+                this._lmFilters.set(i, trio);
+              }
+              lms[i].x = trio.fx.filter(lms[i].x, t);
+              lms[i].y = trio.fy.filter(lms[i].y, t);
+              lms[i].z = trio.fz.filter(lms[i].z, t);
+            }
+            this.worldLandmarks = lms;
             this.poseDetected = true;
           } else {
             this.poseDetected = false;

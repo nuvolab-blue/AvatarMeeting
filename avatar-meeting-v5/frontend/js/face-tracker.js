@@ -11,6 +11,7 @@ import {
   FaceLandmarker,
   FilesetResolver
 } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/vision_bundle.mjs';
+import { OneEuroFilter } from './one-euro-filter.js';
 
 export class FaceTracker {
   constructor() {
@@ -31,6 +32,13 @@ export class FaceTracker {
     this.transformMatrix = null;
     /** @type {boolean} Whether a face is currently detected */
     this.faceDetected = false;
+
+    // 1€ filters for blendshapes (one per shape, lazy-init)
+    this._bsFilters = new Map();
+    // 1€ filters for transform matrix (16 elements)
+    this._matFilters = Array.from({ length: 16 }, () => new OneEuroFilter({
+      minCutoff: 1.0, beta: 0.05, dCutoff: 1.0,
+    }));
   }
 
   /**
@@ -167,21 +175,34 @@ export class FaceTracker {
    * @private
    */
   _processResult(result) {
-    // BlendShapes (52 ARKit coefficients)
+    // BlendShapes (52 ARKit coefficients) — 1€ filtered
     if (result.faceBlendshapes && result.faceBlendshapes.length > 0) {
       const cats = result.faceBlendshapes[0].categories;
+      const t = performance.now() / 1000;
       for (const cat of cats) {
-        this.blendShapes[cat.categoryName] = cat.score;
+        let f = this._bsFilters.get(cat.categoryName);
+        if (!f) {
+          f = new OneEuroFilter({ minCutoff: 1.5, beta: 0.02 });
+          this._bsFilters.set(cat.categoryName, f);
+        }
+        this.blendShapes[cat.categoryName] = f.filter(cat.score, t);
       }
       this.faceDetected = true;
     } else {
       this.faceDetected = false;
     }
 
-    // Head pose transformation matrix (4x4, column-major)
+    // Head pose transformation matrix (4x4, column-major) — 1€ filtered
     if (result.facialTransformationMatrixes &&
         result.facialTransformationMatrixes.length > 0) {
-      this.transformMatrix = result.facialTransformationMatrixes[0].data;
+      const data = result.facialTransformationMatrixes[0].data;
+      const t = performance.now() / 1000;
+      if (!this.transformMatrix) {
+        this.transformMatrix = new Float32Array(16);
+      }
+      for (let i = 0; i < 16; i++) {
+        this.transformMatrix[i] = this._matFilters[i].filter(data[i], t);
+      }
     }
   }
 
