@@ -19,7 +19,7 @@
 <body>
   <header class="header">
     <h1>Avatar Meeting Studio</h1>
-    <span class="badge">v13 · Physics Breathing</span>
+    <span class="badge">v14 · Audio Emotion</span>
   </header>
 
   <div class="main">
@@ -216,6 +216,29 @@
         <p class="hint">
           解剖学ベース: 横隔膜 → 胸 → 肩 → 首<br>
           吸気 35% / 呼気 55% / 休止 10% (実測値)
+        </p>
+      </div>
+
+      <!-- v14: Audio emotion analysis -->
+      <div class="card">
+        <h3>🎭 音声感情解析</h3>
+        <div class="row">
+          <label for="emotion-enabled">有効</label>
+          <input type="checkbox" id="emotion-enabled" checked>
+        </div>
+        <div class="row">
+          <label for="emotion-sensitivity">感度</label>
+          <input type="range" id="emotion-sensitivity" min="0" max="2" step="0.05" value="1.0">
+        </div>
+        <div class="row">
+          <label for="emotion-strength">表情への反映</label>
+          <input type="range" id="emotion-strength" min="0" max="1" step="0.05" value="0.7">
+        </div>
+        <p class="hint">
+          ピッチ・音量・スペクトルから感情を推定し、<br>
+          MediaPipe の表情に自動的に加味します。<br>
+          興奮すると呼吸が深くなります。<br>
+          マイク音声はブラウザ内のみで処理(外部送信なし)
         </p>
       </div>
 

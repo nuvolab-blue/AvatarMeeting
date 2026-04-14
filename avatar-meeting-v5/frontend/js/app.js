@@ -171,6 +171,26 @@ class App {
       });
     }
 
+    // ===== v14: Audio emotion controls =====
+    const emotionEnabled = document.getElementById('emotion-enabled');
+    if (emotionEnabled) {
+      emotionEnabled.addEventListener('change', (e) => {
+        this.scene.setEmotionEnabled(e.target.checked);
+      });
+    }
+    const emotionSensitivity = document.getElementById('emotion-sensitivity');
+    if (emotionSensitivity) {
+      emotionSensitivity.addEventListener('input', (e) => {
+        this.scene.setEmotionSensitivity(parseFloat(e.target.value));
+      });
+    }
+    const emotionStrength = document.getElementById('emotion-strength');
+    if (emotionStrength) {
+      emotionStrength.addEventListener('input', (e) => {
+        this.scene.setEmotionStrength(parseFloat(e.target.value));
+      });
+    }
+
     // ----- Idle gesture settings -----
     const gestEnabled = document.getElementById('gesture-enabled');
     if (gestEnabled) {
@@ -414,6 +434,26 @@ class App {
         this.poseTracker = null;
       }
 
+      // ★ v14: Start independent audio stream for emotion analysis
+      try {
+        const audioStream = await navigator.mediaDevices.getUserMedia({
+          video: false,
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: false,
+          },
+        });
+        const emotionOk = await this.scene.startEmotionAnalysis(audioStream);
+        if (emotionOk) {
+          this._log('s', '音声感情解析開始');
+        } else {
+          this._log('w', '音声感情解析の初期化に失敗');
+        }
+      } catch (err) {
+        this._log('w', `音声感情解析を利用できません: ${err.message}`);
+      }
+
       this._camBtn.textContent = '📹 カメラ OFF';
       this._camBtn.classList.add('active');
     } else {
@@ -424,6 +464,8 @@ class App {
         this.poseTracker = null;
       }
       this.scene.setPoseTracker(null);
+      // ★ v14: Stop emotion analysis
+      this.scene.stopEmotionAnalysis();
       this._camBtn.textContent = '📹 カメラを有効化';
       this._camBtn.classList.remove('active');
       this._log('i', 'カメラ停止');

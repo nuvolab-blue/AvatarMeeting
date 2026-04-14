@@ -23,6 +23,7 @@ import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { IdleGestureAnimator } from './idle-gesture.js';
 import { ExpressionSpringBank } from './spring-interpolator.js';
 import { BreathingController } from './breathing-controller.js';
+import { AudioEmotionAnalyzer, emotionToBlendshapeBias } from './audio-emotion-analyzer.js';
 
 export class AvatarScene {
   /**
@@ -70,6 +71,12 @@ export class AvatarScene {
     this._breathing = new BreathingController();
     /** @private {number} */
     this._lastBreathTime = 0;
+
+    // ===== v14: Audio emotion analysis =====
+    /** @type {AudioEmotionAnalyzer|null} Lazily created on startEmotionAnalysis() */
+    this._emotionAnalyzer = null;
+    /** @type {number} 0..1 — Strength of emotion bias on top of MediaPipe */
+    this.emotionStrength = 0.7;
 
     // ===== v7: Idle body gesture + pose tracking =====
     this._gesture = new IdleGestureAnimator();
@@ -599,6 +606,15 @@ export class AvatarScene {
     const nowB = performance.now();
     const breathDt = this._lastBreathTime ? nowB - this._lastBreathTime : 16;
     this._lastBreathTime = nowB;
+    // ★ v14: Modulate breath depth by emotional arousal
+    if (this._emotionAnalyzer?.enabled) {
+      const s = this._emotionAnalyzer.state;
+      if (s.active) {
+        this._breathing.setDepth(1.0 + s.arousal * 0.6);
+      } else {
+        this._breathing.setDepth(1.0);
+      }
+    }
     this._breathing.update(breathDt);
 
     // 3. Idle body gesture
@@ -683,6 +699,21 @@ export class AvatarScene {
     if (!blendShapes || Object.keys(blendShapes).length === 0) return;
     if (this._morphMeshes.length === 0) return;
 
+    // ★ v14: Apply emotion bias on top of MediaPipe values (additive, non-destructive)
+    let effectiveShapes = blendShapes;
+    if (this._emotionAnalyzer?.enabled) {
+      const bias = emotionToBlendshapeBias(
+        this._emotionAnalyzer.state,
+        this.emotionStrength
+      );
+      if (Object.keys(bias).length > 0) {
+        effectiveShapes = { ...blendShapes };
+        for (const [name, delta] of Object.entries(bias)) {
+          effectiveShapes[name] = Math.min(1, (effectiveShapes[name] ?? 0) + delta);
+        }
+      }
+    }
+
     // dt for physics integration
     const now = performance.now();
     let dt = this._lastBlendShapeTime === 0
@@ -699,7 +730,7 @@ export class AvatarScene {
       const influences = mesh.morphTargetInfluences;
       if (!dict || !influences) continue;
 
-      for (const [name, score] of Object.entries(blendShapes)) {
+      for (const [name, score] of Object.entries(effectiveShapes)) {
         // Preserve L/R mirroring from v11
         let targetName = name;
         if (this.mirrored) {
@@ -1303,4 +1334,41 @@ export class AvatarScene {
   setBreathingEnabled(enabled) { this._breathing.setEnabled(enabled); }
   setBreathRate(bpm) { this._breathing.setBreathRate(bpm); }
   setBreathDepth(d) { this._breathing.setDepth(d); }
+
+  // ===== v14: Audio emotion API =====
+  /**
+   * Start audio emotion analysis using an independent microphone stream.
+   * @param {MediaStream} audioStream
+   * @returns {Promise<boolean>}
+   */
+  async startEmotionAnalysis(audioStream) {
+    if (!this._emotionAnalyzer) {
+      this._emotionAnalyzer = new AudioEmotionAnalyzer();
+    }
+    return await this._emotionAnalyzer.init(audioStream);
+  }
+
+  stopEmotionAnalysis() {
+    if (this._emotionAnalyzer) {
+      this._emotionAnalyzer.stop();
+      this._emotionAnalyzer = null;
+    }
+    if (this._breathing) this._breathing.setDepth(1.0);
+  }
+
+  setEmotionEnabled(enabled) {
+    if (this._emotionAnalyzer) this._emotionAnalyzer.setEnabled(enabled);
+  }
+
+  setEmotionSensitivity(s) {
+    if (this._emotionAnalyzer) this._emotionAnalyzer.setSensitivity(s);
+  }
+
+  setEmotionStrength(s) {
+    this.emotionStrength = Math.max(0, Math.min(1, s));
+  }
+
+  getEmotionState() {
+    return this._emotionAnalyzer?.state ?? null;
+  }
 }
