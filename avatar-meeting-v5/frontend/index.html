@@ -19,7 +19,7 @@
 <body>
   <header class="header">
     <h1>Avatar Meeting Studio</h1>
-    <span class="badge">v12 · Spring Expression Interpolation</span>
+    <span class="badge">v13 · Physics Breathing</span>
   </header>
 
   <div class="main">
@@ -196,6 +196,27 @@
           </div>
           <p class="hint">まず背景の視点をマウスで調整し、「視点を固定」を押してください。固定後はアバターのカメラ操作に切り替わります。</p>
         </div>
+      </div>
+
+      <!-- v13: Breathing -->
+      <div class="card">
+        <h3>🫁 呼吸</h3>
+        <div class="row">
+          <label for="breath-enabled">有効</label>
+          <input type="checkbox" id="breath-enabled" checked>
+        </div>
+        <div class="row">
+          <label for="breath-rate">呼吸数 (bpm)</label>
+          <input type="range" id="breath-rate" min="6" max="30" step="1" value="11">
+        </div>
+        <div class="row">
+          <label for="breath-depth">深さ</label>
+          <input type="range" id="breath-depth" min="0" max="2" step="0.05" value="1.0">
+        </div>
+        <p class="hint">
+          解剖学ベース: 横隔膜 → 胸 → 肩 → 首<br>
+          吸気 35% / 呼気 55% / 休止 10% (実測値)
+        </p>
       </div>
 
       <!-- Idle Gesture -->

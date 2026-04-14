@@ -142,7 +142,7 @@ const BONE_RULES = [
     config: {
       seed: 11, group: 'spine',
       freqX: 0.25, freqY: 0.20, freqZ: 0.30,
-      ampX: 0.020, ampY: 0.025, ampZ: 0.015,
+      ampX: 0.020, ampY: 0.0125, ampZ: 0.015,
       speechBoost: 1.8, poseBoost: 1.5,
     },
   },
@@ -151,7 +151,7 @@ const BONE_RULES = [
     config: {
       seed: 12, group: 'spine',
       freqX: 0.28, freqY: 0.22, freqZ: 0.33,
-      ampX: 0.025, ampY: 0.030, ampZ: 0.020,
+      ampX: 0.025, ampY: 0.015, ampZ: 0.020,
       speechBoost: 1.8, poseBoost: 1.5,
     },
   },
@@ -160,7 +160,7 @@ const BONE_RULES = [
     config: {
       seed: 13, group: 'spine',
       freqX: 0.30, freqY: 0.25, freqZ: 0.35,
-      ampX: 0.030, ampY: 0.035, ampZ: 0.025,
+      ampX: 0.030, ampY: 0.0175, ampZ: 0.025,
       speechBoost: 2.0, poseBoost: 1.8,
     },
   },

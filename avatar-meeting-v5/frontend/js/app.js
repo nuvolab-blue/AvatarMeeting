@@ -151,6 +151,26 @@ class App {
       });
     }
 
+    // ----- v13: Breathing -----
+    const breathEnabled = document.getElementById('breath-enabled');
+    if (breathEnabled) {
+      breathEnabled.addEventListener('change', (e) => {
+        this.scene.setBreathingEnabled(e.target.checked);
+      });
+    }
+    const breathRate = document.getElementById('breath-rate');
+    if (breathRate) {
+      breathRate.addEventListener('input', (e) => {
+        this.scene.setBreathRate(parseFloat(e.target.value));
+      });
+    }
+    const breathDepth = document.getElementById('breath-depth');
+    if (breathDepth) {
+      breathDepth.addEventListener('input', (e) => {
+        this.scene.setBreathDepth(parseFloat(e.target.value));
+      });
+    }
+
     // ----- Idle gesture settings -----
     const gestEnabled = document.getElementById('gesture-enabled');
     if (gestEnabled) {
@@ -313,7 +333,7 @@ class App {
     // ----- Start main loop -----
     this._loop();
 
-    this._log('i', 'Avatar Meeting Studio v12 ready');
+    this._log('i', 'Avatar Meeting Studio v13 ready');
   }
 
   /**

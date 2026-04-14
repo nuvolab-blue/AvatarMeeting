@@ -22,6 +22,7 @@ import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { IdleGestureAnimator } from './idle-gesture.js';
 import { ExpressionSpringBank } from './spring-interpolator.js';
+import { BreathingController } from './breathing-controller.js';
 
 export class AvatarScene {
   /**
@@ -63,6 +64,12 @@ export class AvatarScene {
     this._lastBlendShapeTime = 0;
     /** @type {boolean} */
     this.useSpringInterpolation = true;
+
+    // ===== v13: Physics-based breathing =====
+    /** @type {BreathingController} */
+    this._breathing = new BreathingController();
+    /** @private {number} */
+    this._lastBreathTime = 0;
 
     // ===== v7: Idle body gesture + pose tracking =====
     this._gesture = new IdleGestureAnimator();
@@ -508,6 +515,7 @@ export class AvatarScene {
   /** @private */
   async _loadGLTF(url) {
     if (this._avatar) {
+      this._breathing.clear();
       this._gesture.clear();
       this._scene.remove(this._avatar);
       this._avatar = null;
@@ -526,6 +534,8 @@ export class AvatarScene {
 
     this._applyMaterialQuality();
     this._collectMorphAndBones();
+    this._breathing.registerAvatar(this._avatar);
+    this._lastBreathTime = 0;
     this._gesture.registerAvatar(this._avatar);
     this._autoFrameAvatar();
 
@@ -583,6 +593,13 @@ export class AvatarScene {
     if (transformMatrix && this._headBone) {
       this._applyHeadPose(transformMatrix);
     }
+
+    // 3a. v13: Breathing — must run BEFORE idle-gesture so gesture slerps
+    //     from a baseline that already has chest expansion applied.
+    const nowB = performance.now();
+    const breathDt = this._lastBreathTime ? nowB - this._lastBreathTime : 16;
+    this._lastBreathTime = nowB;
+    this._breathing.update(breathDt);
 
     // 3. Idle body gesture
     const now = performance.now();
@@ -1281,4 +1298,9 @@ export class AvatarScene {
     this._exprSpring.dampingScale = Math.max(0.3, Math.min(3, scale));
     this._exprSpring.rebuild();
   }
+
+  // ===== v13: Breathing public API =====
+  setBreathingEnabled(enabled) { this._breathing.setEnabled(enabled); }
+  setBreathRate(bpm) { this._breathing.setBreathRate(bpm); }
+  setBreathDepth(d) { this._breathing.setDepth(d); }
 }
