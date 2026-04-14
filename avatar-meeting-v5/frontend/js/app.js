@@ -191,6 +191,39 @@ class App {
       });
     }
 
+    // ===== v15: Life motion controls =====
+    const saccadeEnabled = document.getElementById('saccade-enabled');
+    if (saccadeEnabled) {
+      saccadeEnabled.addEventListener('change', (e) => {
+        this.scene.setSaccadeEnabled(e.target.checked);
+      });
+    }
+    const saccadeAmplitude = document.getElementById('saccade-amplitude');
+    if (saccadeAmplitude) {
+      saccadeAmplitude.addEventListener('input', (e) => {
+        this.scene.setSaccadeAmplitude(parseFloat(e.target.value));
+      });
+    }
+    const shakeEnabled = document.getElementById('shake-enabled');
+    if (shakeEnabled) {
+      shakeEnabled.addEventListener('change', (e) => {
+        this.scene.setCameraShakeEnabled(e.target.checked);
+      });
+    }
+    const shakeAmplitude = document.getElementById('shake-amplitude');
+    if (shakeAmplitude) {
+      shakeAmplitude.addEventListener('input', (e) => {
+        // UI in mm → scene expects meters
+        this.scene.setCameraShakeAmplitude(parseFloat(e.target.value) / 1000);
+      });
+    }
+    const shakeFrequency = document.getElementById('shake-frequency');
+    if (shakeFrequency) {
+      shakeFrequency.addEventListener('input', (e) => {
+        this.scene.setCameraShakeFrequency(parseFloat(e.target.value));
+      });
+    }
+
     // ----- Idle gesture settings -----
     const gestEnabled = document.getElementById('gesture-enabled');
     if (gestEnabled) {

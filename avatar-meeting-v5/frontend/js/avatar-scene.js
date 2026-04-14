@@ -24,6 +24,7 @@ import { IdleGestureAnimator } from './idle-gesture.js';
 import { ExpressionSpringBank } from './spring-interpolator.js';
 import { BreathingController } from './breathing-controller.js';
 import { AudioEmotionAnalyzer, emotionToBlendshapeBias } from './audio-emotion-analyzer.js';
+import { LifeMotionController } from './life-motion-controller.js';
 
 export class AvatarScene {
   /**
@@ -77,6 +78,14 @@ export class AvatarScene {
     this._emotionAnalyzer = null;
     /** @type {number} 0..1 — Strength of emotion bias on top of MediaPipe */
     this.emotionStrength = 0.7;
+
+    // ===== v15: Microsaccade + camera shake =====
+    /** @type {LifeMotionController} */
+    this._lifeMotion = new LifeMotionController();
+    /** @private {number} */
+    this._lastLifeMotionTime = 0;
+    /** @private {THREE.Vector3} Previous frame's shake offset (for subtraction) */
+    this._prevShakeOffset = new THREE.Vector3(0, 0, 0);
 
     // ===== v7: Idle body gesture + pose tracking =====
     this._gesture = new IdleGestureAnimator();
@@ -617,6 +626,13 @@ export class AvatarScene {
     }
     this._breathing.update(breathDt);
 
+    // ★ v15: Update microsaccades & camera shake state
+    const nowLM = performance.now();
+    const lmDt = this._lastLifeMotionTime === 0 ? 0.016 : (nowLM - this._lastLifeMotionTime) / 1000;
+    this._lastLifeMotionTime = nowLM;
+    const emotionState = this._emotionAnalyzer?.state ?? null;
+    this._lifeMotion.update(Math.min(lmDt, 0.1), emotionState);
+
     // 3. Idle body gesture
     const now = performance.now();
     const gestDt = this._lastGestureTime ? now - this._lastGestureTime : 16;
@@ -641,6 +657,19 @@ export class AvatarScene {
         }
       }
       this._controls.update();
+    }
+
+    // ★ v15: Apply camera shake AFTER lerp/controls, BEFORE render.
+    // Subtract previous frame's shake before adding current so net delta
+    // per frame is clean and OrbitControls' target relation is preserved.
+    if (this._lifeMotion.shake.enabled) {
+      const shake = this._lifeMotion.shake.offset;
+      this._camera.position.sub(this._prevShakeOffset);
+      this._camera.position.add(shake);
+      this._prevShakeOffset.copy(shake);
+    } else if (this._prevShakeOffset.lengthSq() > 0) {
+      this._camera.position.sub(this._prevShakeOffset);
+      this._prevShakeOffset.set(0, 0, 0);
     }
 
     // 5. Render
@@ -712,6 +741,14 @@ export class AvatarScene {
           effectiveShapes[name] = Math.min(1, (effectiveShapes[name] ?? 0) + delta);
         }
       }
+    }
+
+    // ★ v15: Inject microsaccades on top of emotion bias
+    if (this._lifeMotion.saccade.enabled) {
+      if (effectiveShapes === blendShapes) {
+        effectiveShapes = { ...blendShapes };
+      }
+      this._lifeMotion.saccade.applyTo(effectiveShapes);
     }
 
     // dt for physics integration
@@ -1371,4 +1408,12 @@ export class AvatarScene {
   getEmotionState() {
     return this._emotionAnalyzer?.state ?? null;
   }
+
+  // ===== v15: Life motion API =====
+  setSaccadeEnabled(enabled) { this._lifeMotion.saccade.setEnabled(enabled); }
+  setSaccadeAmplitude(v)     { this._lifeMotion.saccade.setAmplitude(v); }
+
+  setCameraShakeEnabled(enabled) { this._lifeMotion.shake.setEnabled(enabled); }
+  setCameraShakeAmplitude(v)     { this._lifeMotion.shake.setAmplitude(v); }
+  setCameraShakeFrequency(v)     { this._lifeMotion.shake.setFrequency(v); }
 }
