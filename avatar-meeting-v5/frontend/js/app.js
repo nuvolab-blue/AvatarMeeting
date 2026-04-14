@@ -125,6 +125,32 @@ class App {
       });
     }
 
+    // ----- v12: Spring interpolation -----
+    const springEnabled = document.getElementById('spring-enabled');
+    if (springEnabled) {
+      springEnabled.addEventListener('change', (e) => {
+        this.scene.setSpringEnabled(e.target.checked);
+      });
+    }
+    const springStrength = document.getElementById('spring-strength');
+    if (springStrength) {
+      springStrength.addEventListener('input', (e) => {
+        this.scene.setSpringStrength(parseFloat(e.target.value));
+      });
+    }
+    const springStiffness = document.getElementById('spring-stiffness');
+    if (springStiffness) {
+      springStiffness.addEventListener('input', (e) => {
+        this.scene.setSpringStiffness(parseFloat(e.target.value));
+      });
+    }
+    const springDamping = document.getElementById('spring-damping');
+    if (springDamping) {
+      springDamping.addEventListener('input', (e) => {
+        this.scene.setSpringDamping(parseFloat(e.target.value));
+      });
+    }
+
     // ----- Idle gesture settings -----
     const gestEnabled = document.getElementById('gesture-enabled');
     if (gestEnabled) {
@@ -287,7 +313,7 @@ class App {
     // ----- Start main loop -----
     this._loop();
 
-    this._log('i', 'Avatar Meeting Studio v11 ready');
+    this._log('i', 'Avatar Meeting Studio v12 ready');
   }
 
   /**

@@ -21,6 +21,7 @@ import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { IdleGestureAnimator } from './idle-gesture.js';
+import { ExpressionSpringBank } from './spring-interpolator.js';
 
 export class AvatarScene {
   /**
@@ -54,6 +55,14 @@ export class AvatarScene {
     this._smoothedHeadRot = new THREE.Euler();
     /** @private */
     this._loaded = false;
+
+    // ===== v12: Spring-damper expression interpolation =====
+    /** @type {ExpressionSpringBank} */
+    this._exprSpring = new ExpressionSpringBank();
+    /** @private {number} */
+    this._lastBlendShapeTime = 0;
+    /** @type {boolean} */
+    this.useSpringInterpolation = true;
 
     // ===== v7: Idle body gesture + pose tracking =====
     this._gesture = new IdleGestureAnimator();
@@ -505,6 +514,9 @@ export class AvatarScene {
       this._morphMeshes = [];
       this._headBone = null;
       this._neckBone = null;
+      // v12: Reset expression springs on avatar change
+      this._exprSpring.reset();
+      this._lastBlendShapeTime = 0;
     }
 
     const loader = new GLTFLoader();
@@ -641,16 +653,37 @@ export class AvatarScene {
   // BlendShapes & Head Pose
   // ==========================================================================
 
-  /** @private */
+  /**
+   * Apply blendshape coefficients to all morph meshes.
+   *
+   * v12: Uses spring-damper physics per shape (if enabled), creating
+   *      natural overshoot, anticipation, and settle effects.
+   *      Falls back to linear lerp when disabled.
+   *
+   * @private
+   */
   _applyBlendShapes(blendShapes) {
     if (!blendShapes || Object.keys(blendShapes).length === 0) return;
-    const alpha = 1 - this.smoothing;
+    if (this._morphMeshes.length === 0) return;
+
+    // dt for physics integration
+    const now = performance.now();
+    let dt = this._lastBlendShapeTime === 0
+      ? 0.016
+      : (now - this._lastBlendShapeTime) / 1000;
+    this._lastBlendShapeTime = now;
+    if (dt > 0.1) dt = 0.016;  // clamp on tab switch
+
+    const lerpAlpha = 1 - this.smoothing;
+    const useSpring = this.useSpringInterpolation;
 
     for (const mesh of this._morphMeshes) {
       const dict = mesh.morphTargetDictionary;
       const influences = mesh.morphTargetInfluences;
+      if (!dict || !influences) continue;
 
       for (const [name, score] of Object.entries(blendShapes)) {
+        // Preserve L/R mirroring from v11
         let targetName = name;
         if (this.mirrored) {
           if (name.endsWith('Left')) targetName = name.replace('Left', 'Right');
@@ -660,8 +693,21 @@ export class AvatarScene {
         const idx = dict[targetName];
         if (idx === undefined) continue;
 
-        const prev = influences[idx];
-        influences[idx] = prev + (score - prev) * alpha;
+        let newValue;
+        if (useSpring) {
+          // v12: Spring-damper physics (keyed by target name so L/R stay distinct)
+          newValue = this._exprSpring.step(targetName, score, dt);
+        } else {
+          // v11 fallback: linear lerp
+          const prev = influences[idx];
+          newValue = prev + (score - prev) * lerpAlpha;
+        }
+
+        // Clamp [0, 1.2] — allow slight overshoot, prevent mesh artifacts
+        if (newValue < 0) newValue = 0;
+        else if (newValue > 1.2) newValue = 1.2;
+
+        influences[idx] = newValue;
       }
     }
   }
@@ -1205,5 +1251,34 @@ export class AvatarScene {
       { name: '夜の街', mode: 'hdri',
         url: 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/moonless_golf_1k.hdr' },
     ];
+  }
+
+  // ==========================================================================
+  // v12: Expression spring interpolation API
+  // ==========================================================================
+
+  /** Enable or disable spring-damper interpolation (fallback: linear lerp) */
+  setSpringEnabled(enabled) {
+    this.useSpringInterpolation = !!enabled;
+    if (!this.useSpringInterpolation) {
+      this._exprSpring.reset();
+    }
+  }
+
+  /** Set global strength (0=linear lerp only, 1=fully physical) */
+  setSpringStrength(value) {
+    this._exprSpring.strength = Math.max(0, Math.min(1, value));
+  }
+
+  /** Set stiffness scale. Higher = snappier. */
+  setSpringStiffness(scale) {
+    this._exprSpring.stiffnessScale = Math.max(0.3, Math.min(3, scale));
+    this._exprSpring.rebuild();
+  }
+
+  /** Set damping scale. Lower = more overshoot/settle. */
+  setSpringDamping(scale) {
+    this._exprSpring.dampingScale = Math.max(0.3, Math.min(3, scale));
+    this._exprSpring.rebuild();
   }
 }
