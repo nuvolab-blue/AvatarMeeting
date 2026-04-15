@@ -19,7 +19,7 @@
 <body>
   <header class="header">
     <h1>Avatar Meeting Studio</h1>
-    <span class="badge">v17 · Secondary Motion</span>
+    <span class="badge">v18 · Cinematic Post</span>
   </header>
 
   <div class="main">
@@ -307,6 +307,69 @@
         <p class="hint">
           頭部の揺れ戻し: 急な首振り後にわずかに揺れるFollow Through<br>
           髪の揺れ: 髪ボーンがあるモデルのみ動作(Avaturn T2は非対応)
+        </p>
+      </div>
+
+      <!-- v18: LUT Color Grading -->
+      <div class="card">
+        <h3>🎞 カラーグレーディング (LUT)</h3>
+        <div class="row">
+          <label for="lut-enabled">有効</label>
+          <input type="checkbox" id="lut-enabled" checked>
+        </div>
+        <div class="row">
+          <label for="lut-preset">プリセット</label>
+          <select id="lut-preset" class="select-input">
+            <!-- Populated by app.js -->
+          </select>
+        </div>
+        <div class="row">
+          <label for="lut-intensity">強度</label>
+          <input type="range" id="lut-intensity" min="0" max="1" step="0.05" value="1.0">
+        </div>
+        <p class="hint">
+          映画のフィルム質感を再現するLUT。<br>
+          Kodak 5219は標準的な暖かい映画ルック、<br>
+          Teal & OrangeはハリウッドCG大作の定番
+        </p>
+      </div>
+
+      <!-- v18: Lens Effects -->
+      <div class="card">
+        <h3>📷 レンズ効果</h3>
+        <div class="row">
+          <label for="lens-enabled">CA + 歪み有効</label>
+          <input type="checkbox" id="lens-enabled" checked>
+        </div>
+        <div class="row">
+          <label for="ca-strength">色収差強度</label>
+          <input type="range" id="ca-strength" min="0" max="0.02" step="0.0005" value="0.003">
+        </div>
+        <div class="row">
+          <label for="lens-distortion">レンズ歪み</label>
+          <input type="range" id="lens-distortion" min="-0.3" max="0.3" step="0.01" value="0.05">
+        </div>
+        <hr style="opacity:0.3; margin:8px 0;">
+        <div class="row">
+          <label for="flare-enabled">アナモルフィックフレア</label>
+          <input type="checkbox" id="flare-enabled" checked>
+        </div>
+        <div class="row">
+          <label for="flare-intensity">フレア強度</label>
+          <input type="range" id="flare-intensity" min="0" max="2" step="0.05" value="0.6">
+        </div>
+        <div class="row">
+          <label for="flare-threshold">フレア閾値</label>
+          <input type="range" id="flare-threshold" min="0.5" max="1" step="0.01" value="0.85">
+        </div>
+        <div class="row">
+          <label for="flare-stretch">横方向の伸び</label>
+          <input type="range" id="flare-stretch" min="0.2" max="2" step="0.05" value="1.0">
+        </div>
+        <p class="hint">
+          色収差: レンズの不完全さによるRGBのズレ<br>
+          レンズ歪み: 正値=樽型(広角)、負値=糸巻き(望遠)<br>
+          アナモルフィックフレア: 明部から横に延びる青いフレア
         </p>
       </div>
 

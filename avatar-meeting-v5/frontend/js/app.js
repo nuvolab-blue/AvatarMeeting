@@ -279,6 +279,82 @@ class App {
       });
     }
 
+    // ===== v18: LUT color grading =====
+    const lutSelect = document.getElementById('lut-preset');
+    if (lutSelect) {
+      const presets = this.scene.getLUTPresetList();
+      lutSelect.innerHTML = '';
+      for (const p of presets) {
+        const opt = document.createElement('option');
+        opt.value = p.key;
+        opt.textContent = p.name;
+        lutSelect.appendChild(opt);
+      }
+      lutSelect.value = this.scene.getCurrentLUTPreset();
+      lutSelect.addEventListener('change', (e) => {
+        this.scene.applyLUTPreset(e.target.value);
+        this._log('s', `LUT適用: ${e.target.value}`);
+      });
+    }
+    const lutEnabled = document.getElementById('lut-enabled');
+    if (lutEnabled) {
+      lutEnabled.addEventListener('change', (e) => {
+        this.scene.setLUTEnabled(e.target.checked);
+      });
+    }
+    const lutIntensity = document.getElementById('lut-intensity');
+    if (lutIntensity) {
+      lutIntensity.addEventListener('input', (e) => {
+        this.scene.setLUTIntensity(parseFloat(e.target.value));
+      });
+    }
+
+    // ===== v18: Lens (CA + distortion) =====
+    const lensEnabled = document.getElementById('lens-enabled');
+    if (lensEnabled) {
+      lensEnabled.addEventListener('change', (e) => {
+        this.scene.setLensEnabled(e.target.checked);
+      });
+    }
+    const caStrength = document.getElementById('ca-strength');
+    if (caStrength) {
+      caStrength.addEventListener('input', (e) => {
+        this.scene.setChromaticAberration(parseFloat(e.target.value));
+      });
+    }
+    const lensDistortion = document.getElementById('lens-distortion');
+    if (lensDistortion) {
+      lensDistortion.addEventListener('input', (e) => {
+        this.scene.setLensDistortion(parseFloat(e.target.value));
+      });
+    }
+
+    // ===== v18: Anamorphic flare =====
+    const flareEnabled = document.getElementById('flare-enabled');
+    if (flareEnabled) {
+      flareEnabled.addEventListener('change', (e) => {
+        this.scene.setAnamorphicFlareEnabled(e.target.checked);
+      });
+    }
+    const flareIntensity = document.getElementById('flare-intensity');
+    if (flareIntensity) {
+      flareIntensity.addEventListener('input', (e) => {
+        this.scene.setAnamorphicFlareIntensity(parseFloat(e.target.value));
+      });
+    }
+    const flareThreshold = document.getElementById('flare-threshold');
+    if (flareThreshold) {
+      flareThreshold.addEventListener('input', (e) => {
+        this.scene.setAnamorphicFlareThreshold(parseFloat(e.target.value));
+      });
+    }
+    const flareStretch = document.getElementById('flare-stretch');
+    if (flareStretch) {
+      flareStretch.addEventListener('input', (e) => {
+        this.scene.setAnamorphicFlareStretch(parseFloat(e.target.value));
+      });
+    }
+
     // ----- Idle gesture settings -----
     const gestEnabled = document.getElementById('gesture-enabled');
     if (gestEnabled) {

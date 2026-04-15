@@ -27,6 +27,13 @@ import { AudioEmotionAnalyzer, emotionToBlendshapeBias } from './audio-emotion-a
 import { LifeMotionController } from './life-motion-controller.js';
 import { LIGHTING_PRESETS, applyLightingPreset } from './lighting-presets.js';
 import { SecondaryMotionController } from './secondary-motion.js';
+import {
+  createLUTPass,
+  createAnamorphicFlarePass,
+  createLensPass,
+  getLUTTexture,
+  LUT_PRESETS,
+} from './cinematic-passes.js';
 
 export class AvatarScene {
   /**
@@ -352,6 +359,10 @@ export class AvatarScene {
     if (this._composer) {
       this._composer.setSize(w, h);
     }
+    // v18: Update flare resolution uniform
+    if (this._anamorphicFlarePass) {
+      this._anamorphicFlarePass.uniforms.uResolution.value.set(w, h);
+    }
     // v10: Resize BG render target
     if (this._bgRenderTarget) {
       const pw = w * Math.min(window.devicePixelRatio, 2);
@@ -415,6 +426,12 @@ export class AvatarScene {
     );
     this._composer.addPass(this._bloomPass);
 
+    // v18: Anamorphic flare (after Bloom)
+    this._anamorphicFlarePass = createAnamorphicFlarePass();
+    this._anamorphicFlarePass.uniforms.uResolution.value.set(w, h);
+    this._anamorphicFlarePass.enabled = true;
+    this._composer.addPass(this._anamorphicFlarePass);
+
     try {
       this._bokehPass = new BokehPass(this._scene, this._camera, {
         focus: 1.0, aperture: 0.0001, maxblur: 0.005,
@@ -424,16 +441,27 @@ export class AvatarScene {
       console.warn('[AvatarScene] BokehPass not available:', e.message);
     }
 
+    // v18: Lens (CA + barrel distortion) — after DoF, before SMAA
+    this._lensPass = createLensPass();
+    this._lensPass.enabled = true;
+    this._composer.addPass(this._lensPass);
+
     const smaaPass = new SMAAPass(w, h);
     this._composer.addPass(smaaPass);
 
     this._cinematicPass = this._createCinematicPass();
     this._composer.addPass(this._cinematicPass);
 
+    // v18: LUT — after Cinematic, before OutputPass (final color grading)
+    this._lutPass = createLUTPass();
+    this._lutPass.enabled = true;
+    this._currentLUTPreset = 'neutral';
+    this._composer.addPass(this._lutPass);
+
     const outputPass = new OutputPass();
     this._composer.addPass(outputPass);
 
-    console.log('[AvatarScene] PostProcessing pipeline ready');
+    console.log('[AvatarScene] PostProcessing pipeline ready (v18: +flare +lens +LUT)');
   }
 
   /** @private */
@@ -1489,5 +1517,78 @@ export class AvatarScene {
   }
   setHairPhysicsStrength(v) {
     this._secondaryMotion.hairPhysics.setStrength(v);
+  }
+
+  // ==========================================================================
+  // v18: Cinematic post-process API
+  // ==========================================================================
+
+  // --- LUT color grading ---
+  applyLUTPreset(presetKey) {
+    if (!this._lutPass) return false;
+    const tex = getLUTTexture(presetKey);
+    this._lutPass.uniforms.tLUT.value = tex;
+    this._currentLUTPreset = presetKey;
+    console.log(`[LUT] Applied preset: ${presetKey}`);
+    return true;
+  }
+
+  setLUTIntensity(v) {
+    if (!this._lutPass) return;
+    this._lutPass.uniforms.uIntensity.value = Math.max(0, Math.min(1, v));
+  }
+
+  setLUTEnabled(enabled) {
+    if (this._lutPass) this._lutPass.enabled = !!enabled;
+  }
+
+  getCurrentLUTPreset() {
+    return this._currentLUTPreset || 'neutral';
+  }
+
+  getLUTPresetList() {
+    return Object.entries(LUT_PRESETS).map(([key, def]) => ({
+      key, name: def.name,
+    }));
+  }
+
+  // --- Anamorphic flare ---
+  setAnamorphicFlareEnabled(enabled) {
+    if (this._anamorphicFlarePass) this._anamorphicFlarePass.enabled = !!enabled;
+  }
+
+  setAnamorphicFlareIntensity(v) {
+    if (this._anamorphicFlarePass) {
+      this._anamorphicFlarePass.uniforms.uIntensity.value = Math.max(0, Math.min(2, v));
+    }
+  }
+
+  setAnamorphicFlareThreshold(v) {
+    if (this._anamorphicFlarePass) {
+      this._anamorphicFlarePass.uniforms.uThreshold.value = Math.max(0, Math.min(1, v));
+    }
+  }
+
+  setAnamorphicFlareStretch(v) {
+    if (this._anamorphicFlarePass) {
+      this._anamorphicFlarePass.uniforms.uStretch.value = Math.max(0, Math.min(2, v));
+    }
+  }
+
+  // --- Lens (CA + distortion) ---
+  setLensEnabled(enabled) {
+    if (this._lensPass) this._lensPass.enabled = !!enabled;
+  }
+
+  setChromaticAberration(v) {
+    if (this._lensPass) {
+      this._lensPass.uniforms.uCAStrength.value = Math.max(0, Math.min(0.02, v));
+    }
+  }
+
+  setLensDistortion(v) {
+    if (this._lensPass) {
+      this._lensPass.uniforms.uDistortion.value = Math.max(-0.3, Math.min(0.3, v));
+    }
   }
 }
