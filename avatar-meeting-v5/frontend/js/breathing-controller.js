@@ -27,6 +27,8 @@ const BONE_PATTERNS = {
   neck:         /^(mixamorig:?)?Neck$/i,
 };
 
+const HEAD_PATTERN = /^(mixamorig:?)?Head$/i;
+
 /**
  * Per-bone breath parameters — v17 revised (no more scaleY).
  *
@@ -43,42 +45,42 @@ const BONE_PATTERNS = {
 const BONE_BREATH_PARAMS = {
   spine: {
     phaseOffset: 0.00,
-    rotX:  -0.008,
-    rotZ:   0.000,
-    posY:   0.000,
-    posZ:   0.003,
-  },
-  spine1: {
-    phaseOffset: 0.08,
-    rotX:  -0.012,
-    rotZ:   0.000,
-    posY:   0.000,
-    posZ:   0.005,
-  },
-  spine2: {
-    phaseOffset: 0.16,
-    rotX:  -0.015,
+    rotX:   0.000,
     rotZ:   0.000,
     posY:   0.000,
     posZ:   0.004,
+  },
+  spine1: {
+    phaseOffset: 0.08,
+    rotX:   0.000,
+    rotZ:   0.000,
+    posY:   0.000,
+    posZ:   0.008,
+  },
+  spine2: {
+    phaseOffset: 0.16,
+    rotX:   0.000,
+    rotZ:   0.000,
+    posY:   0.000,
+    posZ:   0.006,
   },
   leftShoulder: {
     phaseOffset: 0.20,
     rotX:   0.000,
     rotZ:   0.010,
-    posY:   0.003,
-    posZ:   0.000,
+    posY:   0.002,
+    posZ:   0.003,
   },
   rightShoulder: {
     phaseOffset: 0.20,
     rotX:   0.000,
     rotZ:  -0.010,
-    posY:   0.003,
-    posZ:   0.000,
+    posY:   0.002,
+    posZ:   0.003,
   },
   neck: {
     phaseOffset: 0.25,
-    rotX:  -0.004,
+    rotX:   0.000,
     rotZ:   0.000,
     posY:   0.000,
     posZ:   0.000,
@@ -118,6 +120,17 @@ export class BreathingController {
     /** @private */
     this._phase = 0;
 
+    /** @private @type {THREE.Bone|null} */
+    this._headBone = null;
+    /** @private @type {THREE.Object3D|null} */
+    this._avatarRoot = null;
+    /** @private */
+    this._headRestWorldY = 0;
+    /** @private */
+    this._tmpVec3 = new THREE.Vector3();
+    /** @private */
+    this._tmpVec3b = new THREE.Vector3();
+
     this.enabled = true;
     /** breaths per minute */
     this.breathRate = 11;
@@ -136,12 +149,18 @@ export class BreathingController {
    */
   registerAvatar(avatarRoot) {
     this._targets = [];
+    this._headBone = null;
+    this._avatarRoot = avatarRoot || null;
+    this._headRestWorldY = 0;
     if (!avatarRoot) return;
 
     avatarRoot.updateMatrixWorld(true);
 
     avatarRoot.traverse((obj) => {
       if (!obj.isBone && obj.type !== 'Bone') return;
+      if (!this._headBone && HEAD_PATTERN.test(obj.name)) {
+        this._headBone = obj;
+      }
       for (const [key, pat] of Object.entries(BONE_PATTERNS)) {
         if (pat.test(obj.name)) {
           this._targets.push({
@@ -157,9 +176,15 @@ export class BreathingController {
       }
     });
 
+    if (this._headBone) {
+      this._headBone.getWorldPosition(this._tmpVec3);
+      this._headRestWorldY = this._tmpVec3.y;
+    }
+
     console.log(
       `[Breathing] Registered ${this._targets.length} bones: ` +
-      this._targets.map((t) => t.bone.name).join(', ')
+      this._targets.map((t) => t.bone.name).join(', ') +
+      (this._headBone ? ` | Head Y-lock at ${this._headRestWorldY.toFixed(4)}` : ' | (no head bone found)')
     );
   }
 
@@ -172,6 +197,14 @@ export class BreathingController {
     }
     this._targets = [];
     this._phase = 0;
+    this._headBone = null;
+    this._avatarRoot = null;
+    this._headRestWorldY = 0;
+  }
+
+  /** @private soft-saturating depth: ≤1 linear, >1 compressed (depth=2 → 1.5) */
+  _effectiveDepth() {
+    return this.depth <= 1 ? this.depth : 1 + (this.depth - 1) * 0.5;
   }
 
   setEnabled(v) {
@@ -209,29 +242,33 @@ export class BreathingController {
     this._phase += dt / cycleSec;
     if (this._phase >= 1) this._phase -= Math.floor(this._phase);
 
+    const effDepth = this._effectiveDepth();
+
     for (const t of this._targets) {
       const p = t.params;
       let phase = this._phase - p.phaseOffset;
       if (phase < 0) phase += 1;
 
-      const w = skewedBreathWave(phase) * this.depth;
+      const w = skewedBreathWave(phase) * effDepth;
 
-      // --- Rotation delta (chest tilt + shoulder roll) ---
+      // --- Rotation delta (shoulder roll only in v17.1) ---
       if (p.rotX !== 0 || p.rotZ !== 0) {
         this._tmpEuler.set(p.rotX * w, 0, p.rotZ * w, 'XYZ');
         this._tmpQuat.setFromEuler(this._tmpEuler);
         t.bone.quaternion.copy(t.restQuat).multiply(this._tmpQuat);
+      } else {
+        t.bone.quaternion.copy(t.restQuat);
       }
 
       // --- Position delta (forward expansion + shoulder lift) ---
-      // v17: posZ for forward chest expansion (primary visual cue)
-      //      posY for shoulder lift (secondary)
       if ((p.posY || 0) !== 0 || (p.posZ || 0) !== 0) {
         t.bone.position.set(
           t.restPos.x,
           t.restPos.y + (p.posY || 0) * w,
           t.restPos.z + (p.posZ || 0) * w
         );
+      } else {
+        t.bone.position.copy(t.restPos);
       }
 
       // v17: scaleY removed — always restore rest scale to clear any residue.
@@ -239,6 +276,30 @@ export class BreathingController {
           t.bone.scale.y !== t.restScale.y ||
           t.bone.scale.z !== t.restScale.z) {
         t.bone.scale.copy(t.restScale);
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // v17.1: HEAD Y-POSITION LOCK
+    // After applying breath deltas to the chest chain, the head may have
+    // drifted vertically due to cumulative hierarchy effects. Lock the head's
+    // world-space Y to its rest value by adjusting its LOCAL Y, using the
+    // parent's world scale to convert world→local delta. This preserves the
+    // forward chest expansion visual (posZ unaffected) while guaranteeing
+    // the head stays at the same height.
+    // ------------------------------------------------------------------------
+    if (this._headBone && this._avatarRoot) {
+      this._avatarRoot.updateMatrixWorld(true);
+      this._headBone.getWorldPosition(this._tmpVec3);
+      const dY = this._tmpVec3.y - this._headRestWorldY;
+      if (Math.abs(dY) > 1e-5) {
+        const parent = this._headBone.parent;
+        let invScaleY = 1;
+        if (parent) {
+          parent.getWorldScale(this._tmpVec3b);
+          if (this._tmpVec3b.y > 1e-4) invScaleY = 1 / this._tmpVec3b.y;
+        }
+        this._headBone.position.y -= dY * invScaleY;
       }
     }
   }
