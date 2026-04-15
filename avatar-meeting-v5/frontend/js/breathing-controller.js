@@ -28,21 +28,61 @@ const BONE_PATTERNS = {
 };
 
 /**
- * Per-bone breath parameters.
+ * Per-bone breath parameters — v17 revised (no more scaleY).
  *
- *   phaseOffset : seconds delayed behind the diaphragm (Spine = 0)
- *   scaleY      : vertical scale delta at peak inhale (chest expansion)
- *   rotX        : pitch delta at peak inhale (rad) — chest tilts back slightly
- *   rotZ        : roll delta at peak inhale (rad) — shoulders rise asymmetric
- *   posY        : vertical translation delta at peak (m) — shoulder lift
+ *   phaseOffset : fraction of cycle delayed behind diaphragm
+ *   rotX        : pitch in radians (negative = chest tilts back = "chest opens")
+ *   rotZ        : roll in radians (shoulder rotation)
+ *   posY        : vertical translation in meters (shoulder lift)
+ *   posZ        : forward translation in meters (chest pushes forward on inhale)
+ *
+ * Design: breathing is primarily a FORWARD expansion (posZ) + subtle backward
+ * tilt (rotX), NOT vertical stretching. This eliminates the "growing taller"
+ * artifact caused by cumulative scaleY in the bone hierarchy.
  */
 const BONE_BREATH_PARAMS = {
-  spine:         { phaseOffset: 0.00, scaleY: 0.012, rotX: -0.010, rotZ: 0.000, posY: 0.000 },
-  spine1:        { phaseOffset: 0.08, scaleY: 0.018, rotX: -0.014, rotZ: 0.000, posY: 0.000 },
-  spine2:        { phaseOffset: 0.16, scaleY: 0.022, rotX: -0.018, rotZ: 0.000, posY: 0.000 },
-  leftShoulder:  { phaseOffset: 0.20, scaleY: 0.000, rotX:  0.000, rotZ:  0.012, posY: 0.0035 },
-  rightShoulder: { phaseOffset: 0.20, scaleY: 0.000, rotX:  0.000, rotZ: -0.012, posY: 0.0035 },
-  neck:          { phaseOffset: 0.25, scaleY: 0.000, rotX: -0.006, rotZ: 0.000, posY: 0.000 },
+  spine: {
+    phaseOffset: 0.00,
+    rotX:  -0.008,
+    rotZ:   0.000,
+    posY:   0.000,
+    posZ:   0.003,
+  },
+  spine1: {
+    phaseOffset: 0.08,
+    rotX:  -0.012,
+    rotZ:   0.000,
+    posY:   0.000,
+    posZ:   0.005,
+  },
+  spine2: {
+    phaseOffset: 0.16,
+    rotX:  -0.015,
+    rotZ:   0.000,
+    posY:   0.000,
+    posZ:   0.004,
+  },
+  leftShoulder: {
+    phaseOffset: 0.20,
+    rotX:   0.000,
+    rotZ:   0.010,
+    posY:   0.003,
+    posZ:   0.000,
+  },
+  rightShoulder: {
+    phaseOffset: 0.20,
+    rotX:   0.000,
+    rotZ:  -0.010,
+    posY:   0.003,
+    posZ:   0.000,
+  },
+  neck: {
+    phaseOffset: 0.25,
+    rotX:  -0.004,
+    rotZ:   0.000,
+    posY:   0.000,
+    posZ:   0.000,
+  },
 };
 
 /**
@@ -176,24 +216,29 @@ export class BreathingController {
 
       const w = skewedBreathWave(phase) * this.depth;
 
-      // Rotation delta (chest tilts back, shoulders rise outward)
-      this._tmpEuler.set(p.rotX * w, 0, p.rotZ * w, 'XYZ');
-      this._tmpQuat.setFromEuler(this._tmpEuler);
-      t.bone.quaternion.copy(t.restQuat).multiply(this._tmpQuat);
-
-      // Vertical scale (chest expansion). Restore X/Z.
-      if (p.scaleY !== 0) {
-        const s = 1 + p.scaleY * w;
-        t.bone.scale.set(t.restScale.x, t.restScale.y * s, t.restScale.z);
+      // --- Rotation delta (chest tilt + shoulder roll) ---
+      if (p.rotX !== 0 || p.rotZ !== 0) {
+        this._tmpEuler.set(p.rotX * w, 0, p.rotZ * w, 'XYZ');
+        this._tmpQuat.setFromEuler(this._tmpEuler);
+        t.bone.quaternion.copy(t.restQuat).multiply(this._tmpQuat);
       }
 
-      // Vertical translation (shoulder lift)
-      if (p.posY !== 0) {
+      // --- Position delta (forward expansion + shoulder lift) ---
+      // v17: posZ for forward chest expansion (primary visual cue)
+      //      posY for shoulder lift (secondary)
+      if ((p.posY || 0) !== 0 || (p.posZ || 0) !== 0) {
         t.bone.position.set(
           t.restPos.x,
-          t.restPos.y + p.posY * w,
-          t.restPos.z
+          t.restPos.y + (p.posY || 0) * w,
+          t.restPos.z + (p.posZ || 0) * w
         );
+      }
+
+      // v17: scaleY removed — always restore rest scale to clear any residue.
+      if (t.bone.scale.x !== t.restScale.x ||
+          t.bone.scale.y !== t.restScale.y ||
+          t.bone.scale.z !== t.restScale.z) {
+        t.bone.scale.copy(t.restScale);
       }
     }
   }

@@ -26,6 +26,7 @@ import { BreathingController } from './breathing-controller.js';
 import { AudioEmotionAnalyzer, emotionToBlendshapeBias } from './audio-emotion-analyzer.js';
 import { LifeMotionController } from './life-motion-controller.js';
 import { LIGHTING_PRESETS, applyLightingPreset } from './lighting-presets.js';
+import { SecondaryMotionController } from './secondary-motion.js';
 
 export class AvatarScene {
   /**
@@ -79,6 +80,12 @@ export class AvatarScene {
     this._emotionAnalyzer = null;
     /** @type {number} 0..1 — Strength of emotion bias on top of MediaPipe */
     this.emotionStrength = 0.7;
+
+    // ===== v17: Secondary motion (follow-through + hair physics) =====
+    /** @type {SecondaryMotionController} */
+    this._secondaryMotion = new SecondaryMotionController();
+    /** @private {number} */
+    this._lastSecondaryMotionTime = 0;
 
     // ===== v15: Microsaccade + camera shake =====
     /** @type {LifeMotionController} */
@@ -537,6 +544,7 @@ export class AvatarScene {
   async _loadGLTF(url) {
     if (this._avatar) {
       this._breathing.clear();
+      this._secondaryMotion.clear();
       this._gesture.clear();
       this._scene.remove(this._avatar);
       this._avatar = null;
@@ -557,6 +565,9 @@ export class AvatarScene {
     this._collectMorphAndBones();
     this._breathing.registerAvatar(this._avatar);
     this._lastBreathTime = 0;
+    // v17: secondary motion needs the head bone (set by _collectMorphAndBones above)
+    this._secondaryMotion.registerAvatar(this._avatar, this._headBone);
+    this._lastSecondaryMotionTime = 0;
     this._gesture.registerAvatar(this._avatar);
     this._autoFrameAvatar();
 
@@ -613,6 +624,18 @@ export class AvatarScene {
     // 2. Head pose
     if (transformMatrix && this._headBone) {
       this._applyHeadPose(transformMatrix);
+    }
+
+    // ★ v17: Secondary motion (head follow-through + hair physics).
+    // Must run AFTER _applyHeadPose so it can read the pose-applied rotation
+    // and add overshoot on top.
+    {
+      const nowSM = performance.now();
+      const smDt = this._lastSecondaryMotionTime
+        ? (nowSM - this._lastSecondaryMotionTime) / 1000
+        : 0.016;
+      this._lastSecondaryMotionTime = nowSM;
+      this._secondaryMotion.update(Math.min(smDt, 0.05));
     }
 
     // 3a. v13: Breathing — must run BEFORE idle-gesture so gesture slerps
@@ -1452,5 +1475,19 @@ export class AvatarScene {
       name: def.name,
       description: def.description,
     }));
+  }
+
+  // ===== v17: Secondary motion API =====
+  setHeadFollowEnabled(enabled) {
+    this._secondaryMotion.headFollowThrough.setEnabled(enabled);
+  }
+  setHeadFollowStrength(v) {
+    this._secondaryMotion.headFollowThrough.setStrength(v);
+  }
+  setHairPhysicsEnabled(enabled) {
+    this._secondaryMotion.hairPhysics.setEnabled(enabled);
+  }
+  setHairPhysicsStrength(v) {
+    this._secondaryMotion.hairPhysics.setStrength(v);
   }
 }

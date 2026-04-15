@@ -253,6 +253,32 @@ class App {
       });
     }
 
+    // ===== v17: Secondary motion controls =====
+    const headFollowEnabled = document.getElementById('head-follow-enabled');
+    if (headFollowEnabled) {
+      headFollowEnabled.addEventListener('change', (e) => {
+        this.scene.setHeadFollowEnabled(e.target.checked);
+      });
+    }
+    const headFollowStrength = document.getElementById('head-follow-strength');
+    if (headFollowStrength) {
+      headFollowStrength.addEventListener('input', (e) => {
+        this.scene.setHeadFollowStrength(parseFloat(e.target.value));
+      });
+    }
+    const hairPhysEnabled = document.getElementById('hair-physics-enabled');
+    if (hairPhysEnabled) {
+      hairPhysEnabled.addEventListener('change', (e) => {
+        this.scene.setHairPhysicsEnabled(e.target.checked);
+      });
+    }
+    const hairPhysStrength = document.getElementById('hair-physics-strength');
+    if (hairPhysStrength) {
+      hairPhysStrength.addEventListener('input', (e) => {
+        this.scene.setHairPhysicsStrength(parseFloat(e.target.value));
+      });
+    }
+
     // ----- Idle gesture settings -----
     const gestEnabled = document.getElementById('gesture-enabled');
     if (gestEnabled) {

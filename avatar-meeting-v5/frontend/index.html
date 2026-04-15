@@ -19,7 +19,7 @@
 <body>
   <header class="header">
     <h1>Avatar Meeting Studio</h1>
-    <span class="badge">v16 · Cinematic Lighting</span>
+    <span class="badge">v17 · Secondary Motion</span>
   </header>
 
   <div class="main">
@@ -282,6 +282,31 @@
         </div>
         <p id="lighting-description" class="hint">
           バランス重視。インタビューやCMの定番
+        </p>
+      </div>
+
+      <!-- v17: Secondary motion -->
+      <div class="card">
+        <h3>🌀 二次動作</h3>
+        <div class="row">
+          <label for="head-follow-enabled">頭部の揺れ戻し</label>
+          <input type="checkbox" id="head-follow-enabled" checked>
+        </div>
+        <div class="row">
+          <label for="head-follow-strength">強度</label>
+          <input type="range" id="head-follow-strength" min="0" max="2" step="0.05" value="1.0">
+        </div>
+        <div class="row">
+          <label for="hair-physics-enabled">髪の揺れ</label>
+          <input type="checkbox" id="hair-physics-enabled" checked>
+        </div>
+        <div class="row">
+          <label for="hair-physics-strength">髪の強度</label>
+          <input type="range" id="hair-physics-strength" min="0" max="2" step="0.05" value="1.0">
+        </div>
+        <p class="hint">
+          頭部の揺れ戻し: 急な首振り後にわずかに揺れるFollow Through<br>
+          髪の揺れ: 髪ボーンがあるモデルのみ動作(Avaturn T2は非対応)
         </p>
       </div>
 
