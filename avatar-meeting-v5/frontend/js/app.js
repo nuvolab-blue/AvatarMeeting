@@ -16,6 +16,19 @@ import { PoseTracker } from './pose-tracker.js';
 import { AvatarScene } from './avatar-scene.js';
 import { VirtualCamera } from './virtual-camera.js';
 
+// ===== v18.1: Slider value formatters =====
+function formatFixed(v, digits = 2) {
+  return Number(v).toFixed(digits);
+}
+function formatSigned(v, digits = 2) {
+  const n = Number(v);
+  return (n >= 0 ? '+' : '') + n.toFixed(digits);
+}
+function setValDisplay(id, formatted) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = formatted;
+}
+
 class App {
   constructor() {
     /** @type {AvatarScene|null} */
@@ -305,7 +318,9 @@ class App {
     const lutIntensity = document.getElementById('lut-intensity');
     if (lutIntensity) {
       lutIntensity.addEventListener('input', (e) => {
-        this.scene.setLUTIntensity(parseFloat(e.target.value));
+        const v = parseFloat(e.target.value);
+        this.scene.setLUTIntensity(v);
+        setValDisplay('lut-intensity-val', formatFixed(v, 2));
       });
     }
 
@@ -319,13 +334,17 @@ class App {
     const caStrength = document.getElementById('ca-strength');
     if (caStrength) {
       caStrength.addEventListener('input', (e) => {
-        this.scene.setChromaticAberration(parseFloat(e.target.value));
+        const v = parseFloat(e.target.value);
+        this.scene.setChromaticAberration(v);
+        setValDisplay('ca-strength-val', formatFixed(v, 4));
       });
     }
     const lensDistortion = document.getElementById('lens-distortion');
     if (lensDistortion) {
       lensDistortion.addEventListener('input', (e) => {
-        this.scene.setLensDistortion(parseFloat(e.target.value));
+        const v = parseFloat(e.target.value);
+        this.scene.setLensDistortion(v);
+        setValDisplay('lens-distortion-val', formatSigned(v, 2));
       });
     }
 
@@ -339,19 +358,25 @@ class App {
     const flareIntensity = document.getElementById('flare-intensity');
     if (flareIntensity) {
       flareIntensity.addEventListener('input', (e) => {
-        this.scene.setAnamorphicFlareIntensity(parseFloat(e.target.value));
+        const v = parseFloat(e.target.value);
+        this.scene.setAnamorphicFlareIntensity(v);
+        setValDisplay('flare-intensity-val', formatFixed(v, 2));
       });
     }
     const flareThreshold = document.getElementById('flare-threshold');
     if (flareThreshold) {
       flareThreshold.addEventListener('input', (e) => {
-        this.scene.setAnamorphicFlareThreshold(parseFloat(e.target.value));
+        const v = parseFloat(e.target.value);
+        this.scene.setAnamorphicFlareThreshold(v);
+        setValDisplay('flare-threshold-val', formatFixed(v, 2));
       });
     }
     const flareStretch = document.getElementById('flare-stretch');
     if (flareStretch) {
       flareStretch.addEventListener('input', (e) => {
-        this.scene.setAnamorphicFlareStretch(parseFloat(e.target.value));
+        const v = parseFloat(e.target.value);
+        this.scene.setAnamorphicFlareStretch(v);
+        setValDisplay('flare-stretch-val', formatFixed(v, 2));
       });
     }
 

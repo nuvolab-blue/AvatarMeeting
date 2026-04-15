@@ -276,6 +276,14 @@ body {
   font-size: 12px;
 }
 .row input[type="range"] { width: 120px; }
+.row .val {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 48px;
+  text-align: right;
+  margin-left: 6px;
+}
 
 /* Hint */
 .hint {
