@@ -224,6 +224,35 @@ class App {
       });
     }
 
+    // ===== v16: Lighting presets =====
+    const lightingSelect = document.getElementById('lighting-preset');
+    const lightingDesc = document.getElementById('lighting-description');
+    if (lightingSelect) {
+      const presets = this.scene.getLightingPresetList();
+      lightingSelect.innerHTML = '';
+      for (const p of presets) {
+        const opt = document.createElement('option');
+        opt.value = p.key;
+        opt.textContent = p.name;
+        lightingSelect.appendChild(opt);
+      }
+      lightingSelect.value = this.scene.getCurrentLightingPreset();
+
+      const updateDesc = () => {
+        const cur = presets.find((p) => p.key === lightingSelect.value);
+        if (cur && lightingDesc) lightingDesc.textContent = cur.description;
+      };
+      updateDesc();
+
+      lightingSelect.addEventListener('change', (e) => {
+        const ok = this.scene.applyLightingPreset(e.target.value);
+        if (ok) {
+          updateDesc();
+          this._log('s', `照明プリセット適用: ${e.target.value}`);
+        }
+      });
+    }
+
     // ----- Idle gesture settings -----
     const gestEnabled = document.getElementById('gesture-enabled');
     if (gestEnabled) {

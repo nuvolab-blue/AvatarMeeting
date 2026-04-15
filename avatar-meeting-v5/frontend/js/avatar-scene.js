@@ -25,6 +25,7 @@ import { ExpressionSpringBank } from './spring-interpolator.js';
 import { BreathingController } from './breathing-controller.js';
 import { AudioEmotionAnalyzer, emotionToBlendshapeBias } from './audio-emotion-analyzer.js';
 import { LifeMotionController } from './life-motion-controller.js';
+import { LIGHTING_PRESETS, applyLightingPreset } from './lighting-presets.js';
 
 export class AvatarScene {
   /**
@@ -268,35 +269,39 @@ export class AvatarScene {
     this._camera.lookAt(0, 1.55, 0);
 
     // ----- Cinematic 3-point lighting + soft shadows -----
-    const keyLight = new THREE.DirectionalLight(0xfff4e6, 1.5);
-    keyLight.position.set(2, 3, 4);
-    keyLight.castShadow = true;
-    keyLight.shadow.mapSize.width = 2048;
-    keyLight.shadow.mapSize.height = 2048;
-    keyLight.shadow.camera.near = 0.1;
-    keyLight.shadow.camera.far = 15;
-    keyLight.shadow.camera.left = -3;
-    keyLight.shadow.camera.right = 3;
-    keyLight.shadow.camera.top = 4;
-    keyLight.shadow.camera.bottom = -2;
-    keyLight.shadow.bias = -0.0001;
-    keyLight.shadow.normalBias = 0.02;
-    keyLight.shadow.radius = 8;
-    keyLight.shadow.blurSamples = 16;
-    this._scene.add(keyLight);
+    // v16: Lights are stored as instance properties so presets can mutate them.
+    this._keyLight = new THREE.DirectionalLight(0xfff4e6, 1.5);
+    this._keyLight.position.set(2, 3, 4);
+    this._keyLight.castShadow = true;
+    this._keyLight.shadow.mapSize.width = 2048;
+    this._keyLight.shadow.mapSize.height = 2048;
+    this._keyLight.shadow.camera.near = 0.1;
+    this._keyLight.shadow.camera.far = 15;
+    this._keyLight.shadow.camera.left = -3;
+    this._keyLight.shadow.camera.right = 3;
+    this._keyLight.shadow.camera.top = 4;
+    this._keyLight.shadow.camera.bottom = -2;
+    this._keyLight.shadow.bias = -0.0001;
+    this._keyLight.shadow.normalBias = 0.02;
+    this._keyLight.shadow.radius = 8;
+    this._keyLight.shadow.blurSamples = 16;
+    this._scene.add(this._keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0xc8d8ff, 0.5);
-    fillLight.position.set(-2, 1.5, 3);
-    this._scene.add(fillLight);
+    this._fillLight = new THREE.DirectionalLight(0xc8d8ff, 0.5);
+    this._fillLight.position.set(-2, 1.5, 3);
+    this._scene.add(this._fillLight);
 
-    const rimLight = new THREE.DirectionalLight(0xffffff, 1.5);
-    rimLight.position.set(0, 2, -3);
-    this._scene.add(rimLight);
+    this._rimLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    this._rimLight.position.set(0, 2, -3);
+    this._scene.add(this._rimLight);
 
     // HemisphereLight: sky (blue) top + ground (warm) bounce
-    const hemiLight = new THREE.HemisphereLight(0xb1d4ff, 0xb89878, 0.4);
-    hemiLight.position.set(0, 5, 0);
-    this._scene.add(hemiLight);
+    this._hemiLight = new THREE.HemisphereLight(0xb1d4ff, 0xb89878, 0.4);
+    this._hemiLight.position.set(0, 5, 0);
+    this._scene.add(this._hemiLight);
+
+    // v16: Track current preset
+    this._currentLightingPreset = 'beauty';
 
     // ----- OrbitControls -----
     this._controls = new OrbitControls(this._camera, this._canvas);
@@ -1416,4 +1421,36 @@ export class AvatarScene {
   setCameraShakeEnabled(enabled) { this._lifeMotion.shake.setEnabled(enabled); }
   setCameraShakeAmplitude(v)     { this._lifeMotion.shake.setAmplitude(v); }
   setCameraShakeFrequency(v)     { this._lifeMotion.shake.setFrequency(v); }
+
+  // ===== v16: Lighting presets API =====
+  /**
+   * @param {'beauty'|'rembrandt'|'highKey'|'lowKey'|'magicHour'} presetKey
+   * @returns {boolean}
+   */
+  applyLightingPreset(presetKey) {
+    const ok = applyLightingPreset(
+      presetKey,
+      {
+        key: this._keyLight,
+        fill: this._fillLight,
+        rim: this._rimLight,
+        hemi: this._hemiLight,
+      },
+      this._renderer
+    );
+    if (ok) this._currentLightingPreset = presetKey;
+    return ok;
+  }
+
+  getCurrentLightingPreset() {
+    return this._currentLightingPreset;
+  }
+
+  getLightingPresetList() {
+    return Object.entries(LIGHTING_PRESETS).map(([key, def]) => ({
+      key,
+      name: def.name,
+      description: def.description,
+    }));
+  }
 }
