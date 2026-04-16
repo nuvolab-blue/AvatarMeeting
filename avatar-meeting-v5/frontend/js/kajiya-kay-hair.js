@@ -1,16 +1,14 @@
 /**
- * @fileoverview v19 — Kajiya-Kay hair shading.
+ * @fileoverview v19.2 — Kajiya-Kay hair shading (in-place patch approach).
  *
- * Replaces v11's simple anisotropic shading with a true Kajiya-Kay
- * physically-motivated hair model:
+ * CRITICAL FIX: v19/v19.1 created a NEW MeshPhysicalMaterial and copied
+ * properties manually, which caused hair to disappear on custom avatars
+ * because dozens of material properties (depthWrite, alphaToCoverage,
+ * blending, etc.) were not fully transferred.
  *
- *   - 2 specular lobes (R primary white, TT secondary tinted)
- *   - Each lobe with independent shift along tangent
- *   - Tangent direction inferred from per-fragment normal
- *
- * Implementation: monkey-patches MeshPhysicalMaterial via onBeforeCompile
- * to inject our specular calculation into the fragment shader. This
- * keeps full compatibility with envMap, shadows, etc.
+ * v19.2 approach: NEVER create a new material. Instead, patch the EXISTING
+ * material's onBeforeCompile to inject KK specular. This guarantees 100%
+ * property preservation because we never replace the material object.
  */
 
 import * as THREE from 'three';
@@ -38,143 +36,13 @@ const KAJIYA_HELPERS = /* glsl */ `
   }
 
   vec3 shiftTangent(vec3 T, vec3 N, float shift) {
-    vec3 shiftedT = T + shift * N;
-    return normalize(shiftedT);
+    return normalize(T + shift * N);
   }
 `;
 
-// ============================================================================
-// Material creation
-// ============================================================================
-
-export function makeKajiyaKayMaterial(sourceMaterial) {
-  const m = new THREE.MeshPhysicalMaterial();
-
-  // ========================================================================
-  // v19.1: Complete property transfer from source material
-  // ========================================================================
-
-  // --- Base color & albedo ---
-  if (sourceMaterial.color) m.color.copy(sourceMaterial.color);
-  if (sourceMaterial.map) m.map = sourceMaterial.map;
-
-  // --- Surface detail maps ---
-  if (sourceMaterial.normalMap) {
-    m.normalMap = sourceMaterial.normalMap;
-    if (sourceMaterial.normalScale) m.normalScale.copy(sourceMaterial.normalScale);
-  }
-  if (sourceMaterial.aoMap) {
-    m.aoMap = sourceMaterial.aoMap;
-    m.aoMapIntensity = sourceMaterial.aoMapIntensity ?? 1.0;
-  }
-  if (sourceMaterial.alphaMap) m.alphaMap = sourceMaterial.alphaMap;
-
-  // ★ v19.1: Transfer roughness/metalness maps (critical for correct shading)
-  if (sourceMaterial.roughnessMap) m.roughnessMap = sourceMaterial.roughnessMap;
-  if (sourceMaterial.metalnessMap) m.metalnessMap = sourceMaterial.metalnessMap;
-
-  // ★ v19.1: Transfer emissive properties
-  if (sourceMaterial.emissive) m.emissive.copy(sourceMaterial.emissive);
-  if (sourceMaterial.emissiveMap) m.emissiveMap = sourceMaterial.emissiveMap;
-  if (sourceMaterial.emissiveIntensity !== undefined) {
-    m.emissiveIntensity = sourceMaterial.emissiveIntensity;
-  }
-
-  // --- Environment map ---
-  if (sourceMaterial.envMap) m.envMap = sourceMaterial.envMap;
-
-  // ========================================================================
-  // ★ v19.1: Transparency / rendering-order settings (ROOT CAUSE of hair
-  //          disappearing when custom avatars have alpha-tested hair strands)
-  // ========================================================================
-  m.transparent = sourceMaterial.transparent ?? false;
-  m.opacity = sourceMaterial.opacity ?? 1.0;
-  m.alphaTest = sourceMaterial.alphaTest ?? 0;
-
-  // ★ v19.1: depthWrite — crucial for proper sorting of hair strands
-  if (sourceMaterial.depthWrite !== undefined) {
-    m.depthWrite = sourceMaterial.depthWrite;
-  }
-  if (sourceMaterial.depthTest !== undefined) {
-    m.depthTest = sourceMaterial.depthTest;
-  }
-
-  // ★ v19.1: alphaToCoverage for MSAA-based transparency
-  if (sourceMaterial.alphaToCoverage !== undefined) {
-    m.alphaToCoverage = sourceMaterial.alphaToCoverage;
-  }
-
-  // ★ v19.1: Side rendering — many hair meshes use DoubleSide for see-through
-  m.side = sourceMaterial.side ?? THREE.FrontSide;
-
-  // ========================================================================
-  // ★ v19.1: PBR values — prefer source values, only use defaults as fallback
-  // ========================================================================
-  if (m.roughnessMap) {
-    m.roughness = sourceMaterial.roughness ?? 1.0;
-  } else {
-    m.roughness = sourceMaterial.roughness ?? 0.55;
-  }
-
-  if (m.metalnessMap) {
-    m.metalness = sourceMaterial.metalness ?? 1.0;
-  } else {
-    m.metalness = sourceMaterial.metalness ?? 0.0;
-  }
-
-  m.envMapIntensity = sourceMaterial.envMapIntensity !== undefined
-    ? sourceMaterial.envMapIntensity
-    : 0.7;
-
-  // ========================================================================
-  // Kajiya-Kay runtime parameters (unchanged from v19)
-  // ========================================================================
-  m.userData.kkParams = {
-    hairTint:          new THREE.Color(0x6b3a1a),
-    primaryShift:      0.2,
-    secondaryShift:   -0.3,
-    primaryWidth:      0.18,
-    secondaryWidth:    0.30,
-    primaryStrength:   0.8,
-    secondaryStrength: 0.45,
-  };
-
-  // Diagnostic log — helps debugging when hair disappears
-  console.log(
-    `[KK] Hair material: ` +
-    `transparent=${m.transparent}, ` +
-    `alphaTest=${m.alphaTest}, ` +
-    `opacity=${m.opacity}, ` +
-    `depthWrite=${m.depthWrite}, ` +
-    `side=${m.side}, ` +
-    `hasMap=${!!m.map}, ` +
-    `hasAlphaMap=${!!m.alphaMap}, ` +
-    `hasRoughnessMap=${!!m.roughnessMap}`
-  );
-
-  m.onBeforeCompile = (shader) => {
-    const p = m.userData.kkParams;
-
-    shader.uniforms.uHairTint          = { value: p.hairTint };
-    shader.uniforms.uPrimaryShift      = { value: p.primaryShift };
-    shader.uniforms.uSecondaryShift    = { value: p.secondaryShift };
-    shader.uniforms.uPrimaryWidth      = { value: p.primaryWidth };
-    shader.uniforms.uSecondaryWidth    = { value: p.secondaryWidth };
-    shader.uniforms.uPrimaryStrength   = { value: p.primaryStrength };
-    shader.uniforms.uSecondaryStrength = { value: p.secondaryStrength };
-
-    m.userData.kkShader = shader;
-
-    shader.fragmentShader = shader.fragmentShader.replace(
-      'void main() {',
-      KAJIYA_UNIFORMS_DECL + '\n' + KAJIYA_HELPERS + '\nvoid main() {'
-    );
-
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <dithering_fragment>',
-      /* glsl */ `
+const KAJIYA_MAIN_CODE = /* glsl */ `
       // ============================================================
-      // v19: Kajiya-Kay hair specular contribution
+      // v19.2: Kajiya-Kay hair specular contribution
       // ============================================================
       {
         vec3 N_kk = normalize(normal);
@@ -211,14 +79,115 @@ export function makeKajiyaKayMaterial(sourceMaterial) {
         gl_FragColor.rgb += kkSpec;
       }
       #include <dithering_fragment>
-      `
+`;
+
+// ============================================================================
+// In-place KK shader injection
+// ============================================================================
+
+/**
+ * Apply Kajiya-Kay shader extension to an EXISTING material IN-PLACE.
+ * Does NOT create a new material — the original material object is preserved
+ * with ALL its properties (transparent, depthWrite, alphaTest, maps, etc.).
+ *
+ * Safe to call on MeshStandardMaterial or MeshPhysicalMaterial.
+ *
+ * @param {THREE.Material} material - The existing hair material to patch
+ */
+export function applyKajiyaKayShader(material) {
+  // Skip if already patched
+  if (material.userData._kkPatched) return;
+
+  // Store KK parameters
+  material.userData.kkParams = {
+    hairTint:          new THREE.Color(0x6b3a1a),
+    primaryShift:      0.2,
+    secondaryShift:   -0.3,
+    primaryWidth:      0.18,
+    secondaryWidth:    0.30,
+    primaryStrength:   0.8,
+    secondaryStrength: 0.45,
+  };
+
+  // Diagnostic log
+  console.log(
+    `[KK] Patching hair material in-place: ` +
+    `type=${material.type}, ` +
+    `transparent=${material.transparent}, ` +
+    `alphaTest=${material.alphaTest}, ` +
+    `depthWrite=${material.depthWrite}, ` +
+    `hasMap=${!!material.map}, ` +
+    `hasAlphaMap=${!!material.alphaMap}`
+  );
+
+  // Patch onBeforeCompile — chain with any existing hook
+  const originalOnBeforeCompile = material.onBeforeCompile;
+
+  material.onBeforeCompile = (shader, renderer) => {
+    // Call original onBeforeCompile if it existed
+    if (originalOnBeforeCompile) {
+      originalOnBeforeCompile.call(material, shader, renderer);
+    }
+
+    const p = material.userData.kkParams;
+
+    // Register uniforms
+    shader.uniforms.uHairTint          = { value: p.hairTint };
+    shader.uniforms.uPrimaryShift      = { value: p.primaryShift };
+    shader.uniforms.uSecondaryShift    = { value: p.secondaryShift };
+    shader.uniforms.uPrimaryWidth      = { value: p.primaryWidth };
+    shader.uniforms.uSecondaryWidth    = { value: p.secondaryWidth };
+    shader.uniforms.uPrimaryStrength   = { value: p.primaryStrength };
+    shader.uniforms.uSecondaryStrength = { value: p.secondaryStrength };
+
+    // Save shader reference for runtime updates
+    material.userData.kkShader = shader;
+
+    // Inject uniform declarations + helper functions
+    shader.fragmentShader = shader.fragmentShader.replace(
+      'void main() {',
+      KAJIYA_UNIFORMS_DECL + '\n' + KAJIYA_HELPERS + '\nvoid main() {'
+    );
+
+    // Inject KK specular at dithering point (end of fragment shader)
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <dithering_fragment>',
+      KAJIYA_MAIN_CODE
     );
   };
 
-  m.needsUpdate = true;
-  return m;
+  // Mark as patched to prevent double-application
+  material.userData._kkPatched = true;
+
+  // Force recompilation with the new onBeforeCompile
+  material.needsUpdate = true;
 }
 
+/**
+ * Remove KK shader from a material (restore original behavior).
+ *
+ * @param {THREE.Material} material
+ */
+export function removeKajiyaKayShader(material) {
+  if (!material || !material.userData._kkPatched) return;
+
+  // Reset onBeforeCompile to empty (forces recompile without KK)
+  material.onBeforeCompile = () => {};
+
+  // Clean up userData
+  delete material.userData.kkParams;
+  delete material.userData.kkShader;
+  delete material.userData._kkPatched;
+
+  // Force recompilation without KK
+  material.needsUpdate = true;
+}
+
+/**
+ * Update KK uniforms on a patched material.
+ * @param {THREE.Material} mat
+ * @param {Object} updates
+ */
 export function updateKajiyaKayParams(mat, updates) {
   if (!mat || !mat.userData || !mat.userData.kkParams) return;
   const p = mat.userData.kkParams;

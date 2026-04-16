@@ -34,7 +34,7 @@ import {
   getLUTTexture,
   LUT_PRESETS,
 } from './cinematic-passes.js';
-import { makeKajiyaKayMaterial, updateKajiyaKayParams } from './kajiya-kay-hair.js';
+import { applyKajiyaKayShader, removeKajiyaKayShader, updateKajiyaKayParams } from './kajiya-kay-hair.js';
 
 export class AvatarScene {
   /**
@@ -951,32 +951,23 @@ export class AvatarScene {
           m = physical;
         }
 
-        // ----- ★ v19: Hair (Kajiya-Kay) -----
+        // ----- ★ v19.2: Hair (Kajiya-Kay — in-place patch) -----
         if (isHair) {
           if (this.kajiyaKayEnabled) {
-            const kkMat = makeKajiyaKayMaterial(m);
+            // v19.2: Patch existing material in-place instead of replacing.
+            // This preserves ALL original properties (transparent, depthWrite,
+            // alphaTest, maps, blending, etc.) — fixes "bald head" on custom avatars.
+            applyKajiyaKayShader(m);
 
-            if (!m.map && m.color) {
-              kkMat.userData.kkParams.hairTint.copy(m.color).multiplyScalar(1.5);
+            // Derive tint from diffuse color if no texture map
+            if (!m.map && m.color && m.userData.kkParams) {
+              m.userData.kkParams.hairTint.copy(m.color).multiplyScalar(1.5);
             }
 
-            if (Array.isArray(obj.material)) obj.material[i] = kkMat;
-            else obj.material = kkMat;
-            m = kkMat;
-            this._hairMaterials.push(kkMat);
-          } else {
-            // ----- v11 fallback: anisotropic -----
-            if (m.isMeshStandardMaterial && !m.isMeshPhysicalMaterial) {
-              const physical = this._toPhysicalMaterial(m);
-              physical.anisotropy = 0.8;
-              physical.anisotropyRotation = Math.PI / 2;
-              physical.roughness = 0.45;
-              physical.envMapIntensity = 1.0;
-              if (Array.isArray(obj.material)) obj.material[i] = physical;
-              else obj.material = physical;
-              m = physical;
-            }
+            this._hairMaterials.push(m);
           }
+          // v19.2: No else-branch needed — if KK is disabled, material stays
+          // as-is from the GLB (original shading preserved automatically).
         }
 
         // ----- Common settings (existing — UNCHANGED) -----
@@ -1628,9 +1619,20 @@ export class AvatarScene {
   // ==========================================================================
 
   setKajiyaKayEnabled(enabled) {
+    const wasEnabled = this.kajiyaKayEnabled;
     this.kajiyaKayEnabled = !!enabled;
+
     if (this._avatar) {
-      this._applyMaterialQuality();
+      if (wasEnabled && !enabled) {
+        // Turning OFF: remove KK shader from all hair materials
+        for (const mat of this._hairMaterials) {
+          removeKajiyaKayShader(mat);
+        }
+        this._hairMaterials = [];
+      } else if (!wasEnabled && enabled) {
+        // Turning ON: re-apply material quality (which will patch hair)
+        this._applyMaterialQuality();
+      }
     }
   }
 
