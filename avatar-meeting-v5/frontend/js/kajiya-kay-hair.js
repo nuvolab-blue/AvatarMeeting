@@ -54,26 +54,15 @@ const KAJIYA_MAIN_CODE = /* glsl */ `
         vec3 kkSpec = vec3(0.0);
 
         #if (NUM_DIR_LIGHTS > 0)
-          #pragma unroll_loop_start
-          for (int i = 0; i < NUM_DIR_LIGHTS; i++) {
-            vec3 L_kk = normalize(directionalLights[ i ].direction);
+          for (int kk_i = 0; kk_i < NUM_DIR_LIGHTS; kk_i++) {
+            vec3 L_kk = normalize(directionalLights[ kk_i ].direction);
             vec3 H_kk = normalize(L_kk + V_kk);
-
-            vec3 T_R = shiftTangent(T_kk, N_kk, uPrimaryShift);
-            float r_lobe = kajiyaKayLobe(T_R, H_kk, uPrimaryWidth);
-
-            vec3 T_TT = shiftTangent(T_kk, N_kk, uSecondaryShift);
-            float tt_lobe = kajiyaKayLobe(T_TT, H_kk, uSecondaryWidth);
-
             float NdotL = max(0.0, dot(N_kk, L_kk));
-            vec3 lightCol = directionalLights[ i ].color;
-
-            kkSpec += lightCol * NdotL * (
-              uPrimaryStrength   * r_lobe  * vec3(1.0) +
-              uSecondaryStrength * tt_lobe * uHairTint
+            kkSpec += directionalLights[ kk_i ].color * NdotL * (
+              uPrimaryStrength   * kajiyaKayLobe(shiftTangent(T_kk, N_kk, uPrimaryShift),   H_kk, uPrimaryWidth)   * vec3(1.0) +
+              uSecondaryStrength * kajiyaKayLobe(shiftTangent(T_kk, N_kk, uSecondaryShift), H_kk, uSecondaryWidth) * uHairTint
             );
           }
-          #pragma unroll_loop_end
         #endif
 
         gl_FragColor.rgb += kkSpec;
