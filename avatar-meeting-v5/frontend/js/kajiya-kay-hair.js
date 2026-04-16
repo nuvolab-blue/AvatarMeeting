@@ -50,8 +50,15 @@ const KAJIYA_HELPERS = /* glsl */ `
 export function makeKajiyaKayMaterial(sourceMaterial) {
   const m = new THREE.MeshPhysicalMaterial();
 
-  // Transfer base properties
+  // ========================================================================
+  // v19.1: Complete property transfer from source material
+  // ========================================================================
+
+  // --- Base color & albedo ---
+  if (sourceMaterial.color) m.color.copy(sourceMaterial.color);
   if (sourceMaterial.map) m.map = sourceMaterial.map;
+
+  // --- Surface detail maps ---
   if (sourceMaterial.normalMap) {
     m.normalMap = sourceMaterial.normalMap;
     if (sourceMaterial.normalScale) m.normalScale.copy(sourceMaterial.normalScale);
@@ -61,19 +68,67 @@ export function makeKajiyaKayMaterial(sourceMaterial) {
     m.aoMapIntensity = sourceMaterial.aoMapIntensity ?? 1.0;
   }
   if (sourceMaterial.alphaMap) m.alphaMap = sourceMaterial.alphaMap;
+
+  // ★ v19.1: Transfer roughness/metalness maps (critical for correct shading)
+  if (sourceMaterial.roughnessMap) m.roughnessMap = sourceMaterial.roughnessMap;
+  if (sourceMaterial.metalnessMap) m.metalnessMap = sourceMaterial.metalnessMap;
+
+  // ★ v19.1: Transfer emissive properties
+  if (sourceMaterial.emissive) m.emissive.copy(sourceMaterial.emissive);
+  if (sourceMaterial.emissiveMap) m.emissiveMap = sourceMaterial.emissiveMap;
+  if (sourceMaterial.emissiveIntensity !== undefined) {
+    m.emissiveIntensity = sourceMaterial.emissiveIntensity;
+  }
+
+  // --- Environment map ---
   if (sourceMaterial.envMap) m.envMap = sourceMaterial.envMap;
-  if (sourceMaterial.color) m.color.copy(sourceMaterial.color);
+
+  // ========================================================================
+  // ★ v19.1: Transparency / rendering-order settings (ROOT CAUSE of hair
+  //          disappearing when custom avatars have alpha-tested hair strands)
+  // ========================================================================
   m.transparent = sourceMaterial.transparent ?? false;
   m.opacity = sourceMaterial.opacity ?? 1.0;
   m.alphaTest = sourceMaterial.alphaTest ?? 0;
+
+  // ★ v19.1: depthWrite — crucial for proper sorting of hair strands
+  if (sourceMaterial.depthWrite !== undefined) {
+    m.depthWrite = sourceMaterial.depthWrite;
+  }
+  if (sourceMaterial.depthTest !== undefined) {
+    m.depthTest = sourceMaterial.depthTest;
+  }
+
+  // ★ v19.1: alphaToCoverage for MSAA-based transparency
+  if (sourceMaterial.alphaToCoverage !== undefined) {
+    m.alphaToCoverage = sourceMaterial.alphaToCoverage;
+  }
+
+  // ★ v19.1: Side rendering — many hair meshes use DoubleSide for see-through
   m.side = sourceMaterial.side ?? THREE.FrontSide;
 
-  // Hair-appropriate base PBR settings
-  m.roughness = 0.55;
-  m.metalness = 0.0;
-  m.envMapIntensity = 0.7;
+  // ========================================================================
+  // ★ v19.1: PBR values — prefer source values, only use defaults as fallback
+  // ========================================================================
+  if (m.roughnessMap) {
+    m.roughness = sourceMaterial.roughness ?? 1.0;
+  } else {
+    m.roughness = sourceMaterial.roughness ?? 0.55;
+  }
 
-  // Kajiya-Kay parameters as user-data so they can be edited at runtime
+  if (m.metalnessMap) {
+    m.metalness = sourceMaterial.metalness ?? 1.0;
+  } else {
+    m.metalness = sourceMaterial.metalness ?? 0.0;
+  }
+
+  m.envMapIntensity = sourceMaterial.envMapIntensity !== undefined
+    ? sourceMaterial.envMapIntensity
+    : 0.7;
+
+  // ========================================================================
+  // Kajiya-Kay runtime parameters (unchanged from v19)
+  // ========================================================================
   m.userData.kkParams = {
     hairTint:          new THREE.Color(0x6b3a1a),
     primaryShift:      0.2,
@@ -83,6 +138,19 @@ export function makeKajiyaKayMaterial(sourceMaterial) {
     primaryStrength:   0.8,
     secondaryStrength: 0.45,
   };
+
+  // Diagnostic log — helps debugging when hair disappears
+  console.log(
+    `[KK] Hair material: ` +
+    `transparent=${m.transparent}, ` +
+    `alphaTest=${m.alphaTest}, ` +
+    `opacity=${m.opacity}, ` +
+    `depthWrite=${m.depthWrite}, ` +
+    `side=${m.side}, ` +
+    `hasMap=${!!m.map}, ` +
+    `hasAlphaMap=${!!m.alphaMap}, ` +
+    `hasRoughnessMap=${!!m.roughnessMap}`
+  );
 
   m.onBeforeCompile = (shader) => {
     const p = m.userData.kkParams;
