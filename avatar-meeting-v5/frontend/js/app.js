@@ -380,6 +380,71 @@ class App {
       });
     }
 
+    // ===== v19: Kajiya-Kay hair =====
+    const kkEnabled = document.getElementById('kk-enabled');
+    if (kkEnabled) {
+      kkEnabled.addEventListener('change', (e) => {
+        this.scene.setKajiyaKayEnabled(e.target.checked);
+        this._log('s', `髪シェーダー: ${e.target.checked ? 'Kajiya-Kay' : 'v11 anisotropic'}`);
+      });
+    }
+
+    const kkPrimaryStrength = document.getElementById('kk-primary-strength');
+    if (kkPrimaryStrength) {
+      kkPrimaryStrength.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setHairPrimaryStrength(v);
+        setValDisplay('kk-primary-strength-val', formatFixed(v, 2));
+      });
+    }
+    const kkSecondaryStrength = document.getElementById('kk-secondary-strength');
+    if (kkSecondaryStrength) {
+      kkSecondaryStrength.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setHairSecondaryStrength(v);
+        setValDisplay('kk-secondary-strength-val', formatFixed(v, 2));
+      });
+    }
+    const kkPrimaryWidth = document.getElementById('kk-primary-width');
+    if (kkPrimaryWidth) {
+      kkPrimaryWidth.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setHairPrimaryWidth(v);
+        setValDisplay('kk-primary-width-val', formatFixed(v, 2));
+      });
+    }
+    const kkSecondaryWidth = document.getElementById('kk-secondary-width');
+    if (kkSecondaryWidth) {
+      kkSecondaryWidth.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setHairSecondaryWidth(v);
+        setValDisplay('kk-secondary-width-val', formatFixed(v, 2));
+      });
+    }
+    const kkPrimaryShift = document.getElementById('kk-primary-shift');
+    if (kkPrimaryShift) {
+      kkPrimaryShift.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setHairPrimaryShift(v);
+        setValDisplay('kk-primary-shift-val', formatSigned(v, 2));
+      });
+    }
+    const kkSecondaryShift = document.getElementById('kk-secondary-shift');
+    if (kkSecondaryShift) {
+      kkSecondaryShift.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setHairSecondaryShift(v);
+        setValDisplay('kk-secondary-shift-val', formatSigned(v, 2));
+      });
+    }
+    const kkTint = document.getElementById('kk-tint');
+    if (kkTint) {
+      kkTint.addEventListener('input', (e) => {
+        const hex = parseInt(e.target.value.slice(1), 16);
+        this.scene.setHairTint(hex);
+      });
+    }
+
     // ----- Idle gesture settings -----
     const gestEnabled = document.getElementById('gesture-enabled');
     if (gestEnabled) {

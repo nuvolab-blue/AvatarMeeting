@@ -19,7 +19,7 @@
 <body>
   <header class="header">
     <h1>Avatar Meeting Studio</h1>
-    <span class="badge">v18 · Cinematic Post</span>
+    <span class="badge">v19 · Kajiya-Kay Hair</span>
   </header>
 
   <div class="main">
@@ -376,6 +376,55 @@
           色収差: レンズの不完全さによるRGBのズレ<br>
           レンズ歪み: 正値=樽型(広角)、負値=糸巻き(望遠)<br>
           アナモルフィックフレア: 明部から横に延びる青いフレア
+        </p>
+      </div>
+
+      <!-- v19: Kajiya-Kay hair shading -->
+      <div class="card">
+        <h3>💇 髪のシェーディング (Kajiya-Kay)</h3>
+        <div class="row">
+          <label for="kk-enabled">Kajiya-Kay 有効</label>
+          <input type="checkbox" id="kk-enabled" checked>
+        </div>
+        <div class="row">
+          <label for="kk-primary-strength">1次反射強度</label>
+          <input type="range" id="kk-primary-strength" min="0" max="2" step="0.05" value="0.8">
+          <span class="val" id="kk-primary-strength-val">0.80</span>
+        </div>
+        <div class="row">
+          <label for="kk-secondary-strength">2次反射強度</label>
+          <input type="range" id="kk-secondary-strength" min="0" max="2" step="0.05" value="0.45">
+          <span class="val" id="kk-secondary-strength-val">0.45</span>
+        </div>
+        <div class="row">
+          <label for="kk-primary-width">1次反射の鋭さ</label>
+          <input type="range" id="kk-primary-width" min="0.05" max="0.5" step="0.01" value="0.18">
+          <span class="val" id="kk-primary-width-val">0.18</span>
+        </div>
+        <div class="row">
+          <label for="kk-secondary-width">2次反射の鋭さ</label>
+          <input type="range" id="kk-secondary-width" min="0.05" max="0.6" step="0.01" value="0.30">
+          <span class="val" id="kk-secondary-width-val">0.30</span>
+        </div>
+        <div class="row">
+          <label for="kk-primary-shift">1次反射の位置</label>
+          <input type="range" id="kk-primary-shift" min="-0.5" max="0.5" step="0.02" value="0.2">
+          <span class="val" id="kk-primary-shift-val">+0.20</span>
+        </div>
+        <div class="row">
+          <label for="kk-secondary-shift">2次反射の位置</label>
+          <input type="range" id="kk-secondary-shift" min="-0.5" max="0.5" step="0.02" value="-0.3">
+          <span class="val" id="kk-secondary-shift-val">-0.30</span>
+        </div>
+        <div class="row">
+          <label for="kk-tint">2次反射の色</label>
+          <input type="color" id="kk-tint" value="#6b3a1a">
+        </div>
+        <p class="hint">
+          映画CGスタジオ標準の髪シェーダー。<br>
+          1次反射: 表面で直接反射する白いハイライト<br>
+          2次反射: 髪内部を通って戻ってくる髪色のハイライト<br>
+          位置: 正値=根元寄り、負値=毛先寄り
         </p>
       </div>
 

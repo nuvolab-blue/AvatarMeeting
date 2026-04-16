@@ -34,6 +34,7 @@ import {
   getLUTTexture,
   LUT_PRESETS,
 } from './cinematic-passes.js';
+import { makeKajiyaKayMaterial, updateKajiyaKayParams } from './kajiya-kay-hair.js';
 
 export class AvatarScene {
   /**
@@ -87,6 +88,12 @@ export class AvatarScene {
     this._emotionAnalyzer = null;
     /** @type {number} 0..1 — Strength of emotion bias on top of MediaPipe */
     this.emotionStrength = 0.7;
+
+    // ===== v19: Kajiya-Kay hair =====
+    /** @type {boolean} master toggle (false = revert to v11 anisotropic) */
+    this.kajiyaKayEnabled = true;
+    /** @private @type {THREE.Material[]} hair materials currently applied to avatar */
+    this._hairMaterials = [];
 
     // ===== v17: Secondary motion (follow-through + hair physics) =====
     /** @type {SecondaryMotionController} */
@@ -910,6 +917,10 @@ export class AvatarScene {
   /** @private */
   _applyMaterialQuality() {
     if (!this._avatar) return;
+
+    // v19: Reset hair material list before re-collecting
+    this._hairMaterials = [];
+
     this._avatar.traverse((obj) => {
       if (!obj.isMesh) return;
       obj.castShadow = true;
@@ -923,7 +934,7 @@ export class AvatarScene {
       for (let i = 0; i < mats.length; i++) {
         let m = mats[i];
 
-        // Convert StandardMaterial → PhysicalMaterial for skin (SSS approximation)
+        // ----- Skin (existing SSS handling — UNCHANGED) -----
         if (isSkin && m.isMeshStandardMaterial && !m.isMeshPhysicalMaterial) {
           const physical = this._toPhysicalMaterial(m);
           // SSS via sheen + clearcoat (avoids transmission shader issues)
@@ -940,19 +951,35 @@ export class AvatarScene {
           m = physical;
         }
 
-        // Hair: anisotropic highlights
-        if (isHair && m.isMeshStandardMaterial && !m.isMeshPhysicalMaterial) {
-          const physical = this._toPhysicalMaterial(m);
-          physical.anisotropy = 0.8;
-          physical.anisotropyRotation = Math.PI / 2;
-          physical.roughness = 0.45;
-          physical.envMapIntensity = 1.0;
-          if (Array.isArray(obj.material)) obj.material[i] = physical;
-          else obj.material = physical;
-          m = physical;
+        // ----- ★ v19: Hair (Kajiya-Kay) -----
+        if (isHair) {
+          if (this.kajiyaKayEnabled) {
+            const kkMat = makeKajiyaKayMaterial(m);
+
+            if (!m.map && m.color) {
+              kkMat.userData.kkParams.hairTint.copy(m.color).multiplyScalar(1.5);
+            }
+
+            if (Array.isArray(obj.material)) obj.material[i] = kkMat;
+            else obj.material = kkMat;
+            m = kkMat;
+            this._hairMaterials.push(kkMat);
+          } else {
+            // ----- v11 fallback: anisotropic -----
+            if (m.isMeshStandardMaterial && !m.isMeshPhysicalMaterial) {
+              const physical = this._toPhysicalMaterial(m);
+              physical.anisotropy = 0.8;
+              physical.anisotropyRotation = Math.PI / 2;
+              physical.roughness = 0.45;
+              physical.envMapIntensity = 1.0;
+              if (Array.isArray(obj.material)) obj.material[i] = physical;
+              else obj.material = physical;
+              m = physical;
+            }
+          }
         }
 
-        // Common settings for all materials
+        // ----- Common settings (existing — UNCHANGED) -----
         if (m.envMapIntensity !== undefined && !isSkin && !isHair) {
           m.envMapIntensity = 1.2;
         }
@@ -961,7 +988,11 @@ export class AvatarScene {
       }
     });
 
-    console.log('[AvatarScene] Material quality applied (SSS skin + anisotropic hair)');
+    console.log(
+      `[AvatarScene] Material quality applied (SSS skin + ` +
+      `${this.kajiyaKayEnabled ? 'Kajiya-Kay' : 'anisotropic'} hair, ` +
+      `${this._hairMaterials.length} hair materials)`
+    );
   }
 
   /**
@@ -1590,5 +1621,34 @@ export class AvatarScene {
     if (this._lensPass) {
       this._lensPass.uniforms.uDistortion.value = Math.max(-0.3, Math.min(0.3, v));
     }
+  }
+
+  // ==========================================================================
+  // v19: Kajiya-Kay hair API
+  // ==========================================================================
+
+  setKajiyaKayEnabled(enabled) {
+    this.kajiyaKayEnabled = !!enabled;
+    if (this._avatar) {
+      this._applyMaterialQuality();
+    }
+  }
+
+  setHairKKParams(updates) {
+    for (const mat of this._hairMaterials) {
+      updateKajiyaKayParams(mat, updates);
+    }
+  }
+
+  setHairPrimaryStrength(v)   { this.setHairKKParams({ primaryStrength:   v }); }
+  setHairSecondaryStrength(v) { this.setHairKKParams({ secondaryStrength: v }); }
+  setHairPrimaryWidth(v)      { this.setHairKKParams({ primaryWidth:      v }); }
+  setHairSecondaryWidth(v)    { this.setHairKKParams({ secondaryWidth:    v }); }
+  setHairPrimaryShift(v)      { this.setHairKKParams({ primaryShift:      v }); }
+  setHairSecondaryShift(v)    { this.setHairKKParams({ secondaryShift:    v }); }
+
+  setHairTint(hex) {
+    const c = new THREE.Color(hex);
+    this.setHairKKParams({ hairTint: c });
   }
 }

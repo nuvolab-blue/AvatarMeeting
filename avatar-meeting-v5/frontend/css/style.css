@@ -276,6 +276,15 @@ body {
   font-size: 12px;
 }
 .row input[type="range"] { width: 120px; }
+.card input[type="color"] {
+  width: 60px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+  background: transparent;
+}
 .row .val {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 11px;
