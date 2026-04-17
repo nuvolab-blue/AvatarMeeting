@@ -294,6 +294,26 @@ body {
   margin-left: 6px;
 }
 
+/* v20: hex text input for color picker sync */
+.row input[type="text"].hex-input {
+  width: 72px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  padding: 4px 6px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-left: 6px;
+  text-transform: lowercase;
+}
+.row input[type="text"].hex-input:focus {
+  outline: 1px solid var(--accent);
+}
+.row input[type="text"].hex-input.invalid {
+  border-color: var(--error);
+}
+
 /* Hint */
 .hint {
   font-size: 11px;

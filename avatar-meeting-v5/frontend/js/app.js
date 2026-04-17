@@ -148,19 +148,25 @@ class App {
     const springStrength = document.getElementById('spring-strength');
     if (springStrength) {
       springStrength.addEventListener('input', (e) => {
-        this.scene.setSpringStrength(parseFloat(e.target.value));
+        const v = parseFloat(e.target.value);
+        this.scene.setSpringStrength(v);
+        setValDisplay('spring-strength-val', formatFixed(v, 2));
       });
     }
     const springStiffness = document.getElementById('spring-stiffness');
     if (springStiffness) {
       springStiffness.addEventListener('input', (e) => {
-        this.scene.setSpringStiffness(parseFloat(e.target.value));
+        const v = parseFloat(e.target.value);
+        this.scene.setSpringStiffness(v);
+        setValDisplay('spring-stiffness-val', formatFixed(v, 2));
       });
     }
     const springDamping = document.getElementById('spring-damping');
     if (springDamping) {
       springDamping.addEventListener('input', (e) => {
-        this.scene.setSpringDamping(parseFloat(e.target.value));
+        const v = parseFloat(e.target.value);
+        this.scene.setSpringDamping(v);
+        setValDisplay('spring-damping-val', formatFixed(v, 2));
       });
     }
 
@@ -437,11 +443,51 @@ class App {
         setValDisplay('kk-secondary-shift-val', formatSigned(v, 2));
       });
     }
+    // v20: Hair tint with both color picker AND hex text input (bidirectional sync)
     const kkTint = document.getElementById('kk-tint');
+    const kkTintHex = document.getElementById('kk-tint-hex');
+
+    /** Apply hex string "#rrggbb" to the scene; return true on success */
+    const applyHexTint = (hexStr) => {
+      const match = /^#([0-9a-fA-F]{6})$/.exec(hexStr.trim());
+      if (!match) return false;
+      const hex = parseInt(match[1], 16);
+      this.scene.setHairTint(hex);
+      return true;
+    };
+
     if (kkTint) {
       kkTint.addEventListener('input', (e) => {
-        const hex = parseInt(e.target.value.slice(1), 16);
-        this.scene.setHairTint(hex);
+        const hexStr = e.target.value.toLowerCase();
+        applyHexTint(hexStr);
+        if (kkTintHex) {
+          kkTintHex.value = hexStr;
+          kkTintHex.classList.remove('invalid');
+        }
+      });
+    }
+
+    if (kkTintHex) {
+      kkTintHex.addEventListener('input', (e) => {
+        let val = e.target.value.trim();
+        // Auto-prepend # if missing
+        if (val.length === 6 && !val.startsWith('#')) {
+          val = '#' + val;
+          e.target.value = val;
+        }
+        if (applyHexTint(val)) {
+          e.target.classList.remove('invalid');
+          if (kkTint) kkTint.value = val.toLowerCase();
+        } else {
+          e.target.classList.add('invalid');
+        }
+      });
+
+      kkTintHex.addEventListener('blur', (e) => {
+        if (e.target.classList.contains('invalid') && kkTint) {
+          e.target.value = kkTint.value.toLowerCase();
+          e.target.classList.remove('invalid');
+        }
       });
     }
 
@@ -601,13 +647,129 @@ class App {
       });
     }
 
+    // ----- v20: Settings reset button -----
+    const resetBtn = document.getElementById('reset-settings-btn');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        if (confirm('全ての設定を初期値に戻しますか?\nページがリロードされます。')) {
+          localStorage.removeItem('avatarMeetingStudio.settings.v1');
+          location.reload();
+        }
+      });
+    }
+
+    // ----- v20: Settings persistence (must be last — after all handlers) -----
+    this._setupSettingsPersistence();
+
     // ----- Auto-load default avatar -----
     this._loadAvatar();
 
     // ----- Start main loop -----
     this._loop();
 
-    this._log('i', 'Avatar Meeting Studio v13 ready');
+    this._log('i', 'Avatar Meeting Studio v20 ready');
+  }
+
+  /**
+   * v20: localStorage persistence for all UI control values.
+   * Captures checkboxes, ranges, selects, and color/text inputs.
+   * @private
+   */
+  _setupSettingsPersistence() {
+    const STORAGE_KEY = 'avatarMeetingStudio.settings.v1';
+    const SAVE_DEBOUNCE_MS = 300;
+
+    const selectors = [
+      'input[type="range"]',
+      'input[type="checkbox"]',
+      'input[type="color"]',
+      'input[type="text"].hex-input',
+      'select',
+    ];
+    const controls = [];
+    for (const sel of selectors) {
+      controls.push(...document.querySelectorAll(sel));
+    }
+    const persistable = controls.filter((c) => c.id);
+
+    // --- Restore saved values ---
+    const restore = () => {
+      let saved = null;
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        saved = JSON.parse(raw);
+      } catch (err) {
+        console.warn('[Settings] Failed to parse saved settings:', err);
+        return;
+      }
+
+      if (!saved || typeof saved !== 'object') return;
+
+      let restoredCount = 0;
+      for (const ctrl of persistable) {
+        if (!(ctrl.id in saved)) continue;
+        const val = saved[ctrl.id];
+        try {
+          if (ctrl.type === 'checkbox') {
+            ctrl.checked = !!val;
+          } else {
+            ctrl.value = String(val);
+          }
+          const eventType = ctrl.type === 'checkbox' || ctrl.tagName === 'SELECT'
+            ? 'change' : 'input';
+          ctrl.dispatchEvent(new Event(eventType, { bubbles: true }));
+          restoredCount++;
+        } catch (err) {
+          // Silently skip problematic controls
+        }
+      }
+
+      if (restoredCount > 0) {
+        this._log?.('s', `設定を復元しました (${restoredCount} 項目)`);
+        console.log(`[Settings] Restored ${restoredCount} values from localStorage`);
+      }
+    };
+
+    // --- Save current values ---
+    let saveTimer = null;
+    const saveNow = () => {
+      try {
+        const data = {};
+        for (const ctrl of persistable) {
+          if (ctrl.type === 'checkbox') {
+            data[ctrl.id] = ctrl.checked;
+          } else {
+            data[ctrl.id] = ctrl.value;
+          }
+        }
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      } catch (err) {
+        console.warn('[Settings] Failed to save:', err);
+      }
+    };
+    const debouncedSave = () => {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(saveNow, SAVE_DEBOUNCE_MS);
+    };
+
+    // --- Wire up auto-save on every change ---
+    for (const ctrl of persistable) {
+      const eventType = ctrl.type === 'checkbox' || ctrl.tagName === 'SELECT'
+        ? 'change' : 'input';
+      ctrl.addEventListener(eventType, debouncedSave);
+    }
+
+    // --- Restore after brief delay to let scene init complete ---
+    setTimeout(restore, 200);
+
+    // --- Expose reset helper on window for debugging ---
+    window.resetAvatarMeetingSettings = () => {
+      localStorage.removeItem(STORAGE_KEY);
+      console.log('[Settings] Cleared saved settings. Reload to use defaults.');
+    };
+
+    console.log(`[Settings] Persistence enabled (${persistable.length} controls tracked)`);
   }
 
   /**

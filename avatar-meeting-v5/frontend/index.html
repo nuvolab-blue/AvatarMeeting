@@ -19,7 +19,7 @@
 <body>
   <header class="header">
     <h1>Avatar Meeting Studio</h1>
-    <span class="badge">v19.3 · Soft-Clip Hair</span>
+    <span class="badge">v20 · Persistence</span>
   </header>
 
   <div class="main">
@@ -118,14 +118,17 @@
         <div class="row">
           <label for="spring-strength">強度</label>
           <input type="range" id="spring-strength" min="0" max="1" step="0.05" value="1.0">
+          <span class="val" id="spring-strength-val">1.00</span>
         </div>
         <div class="row">
           <label for="spring-stiffness">応答速度</label>
           <input type="range" id="spring-stiffness" min="0.5" max="2" step="0.05" value="1.0">
+          <span class="val" id="spring-stiffness-val">1.00</span>
         </div>
         <div class="row">
           <label for="spring-damping">跳ね返り</label>
           <input type="range" id="spring-damping" min="0.5" max="2" step="0.05" value="1.0">
+          <span class="val" id="spring-damping-val">1.00</span>
         </div>
         <p class="hint">
           応答速度: 高いほど素早く追従<br>
@@ -419,6 +422,9 @@
         <div class="row">
           <label for="kk-tint">2次反射の色</label>
           <input type="color" id="kk-tint" value="#3a2015">
+          <input type="text" id="kk-tint-hex" class="hex-input" value="#3a2015"
+                 maxlength="7" pattern="^#[0-9A-Fa-f]{6}$"
+                 placeholder="#rrggbb">
         </div>
         <p class="hint">
           映画CGスタジオ標準の髪シェーダー。<br>
@@ -460,6 +466,21 @@
           <label>ミラー表示</label>
           <input type="checkbox" id="mirror" checked>
         </div>
+      </div>
+
+      <!-- v20: Settings reset -->
+      <div class="card">
+        <h3>⚙️ 設定管理</h3>
+        <div class="row">
+          <label>保存済み設定</label>
+          <button id="reset-settings-btn" class="btn-secondary">初期値に戻す</button>
+        </div>
+        <p class="hint">
+          スライダー・チェックボックスの状態を自動保存し、<br>
+          ページリロード時に復元します。<br>
+          「初期値に戻す」を押すと保存データをクリアして<br>
+          ページをリロードします。
+        </p>
       </div>
 
       <!-- Log -->
