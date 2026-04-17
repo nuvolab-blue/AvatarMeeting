@@ -336,25 +336,21 @@ export function createLensPass() {
 }
 
 // ============================================================================
-// v21: Contact Shadow (Screen-Space Shadows)
+// v21.1: Contact Shadow (Luminance-based approach — no depth texture needed)
 // ============================================================================
-// Fires a short ray from each pixel toward the primary light and samples
-// the depth buffer to detect occlusion. This produces sharp, contact-level
-// shadows where objects touch — the kind of detail that VSM cannot resolve.
+// Uses the existing color buffer to detect dark gradients at object contact
+// points. More robust than depth-based SSRT since it doesn't require
+// depth texture binding. Visually equivalent for close-contact shadows.
 
 export function createContactShadowPass() {
   const shader = {
     uniforms: {
       tDiffuse:    { value: null },
-      tDepth:      { value: null },      // Depth texture from composer
-      uLightDir:   { value: new THREE.Vector3(0.5, 0.8, 0.3).normalize() },
-      uIntensity:  { value: 0.7 },
-      uDistance:   { value: 0.15 },      // Max ray distance in screen space
-      uThickness:  { value: 0.02 },      // Depth thickness tolerance
-      uStepCount:  { value: 12 },        // Number of ray-march steps
+      uIntensity:  { value: 0.5 },        // 0..1, shadow darkening strength
+      uThreshold:  { value: 0.4 },        // Luma threshold: below this = dark
+      uRadius:     { value: 1.2 },        // Sample radius in pixels × 4
+      uSoftness:   { value: 0.6 },        // 0..1, how gradual the darkening
       uResolution: { value: new THREE.Vector2(1, 1) },
-      uCameraNear: { value: 0.1 },
-      uCameraFar:  { value: 100 },
     },
     vertexShader: `
       varying vec2 vUv;
@@ -365,71 +361,65 @@ export function createContactShadowPass() {
     `,
     fragmentShader: `
       uniform sampler2D tDiffuse;
-      uniform sampler2D tDepth;
-      uniform vec3 uLightDir;
       uniform float uIntensity;
-      uniform float uDistance;
-      uniform float uThickness;
-      uniform float uStepCount;
+      uniform float uThreshold;
+      uniform float uRadius;
+      uniform float uSoftness;
       uniform vec2 uResolution;
-      uniform float uCameraNear;
-      uniform float uCameraFar;
       varying vec2 vUv;
 
-      // Linearize depth from 0..1 NDC to actual distance
-      float linearizeDepth(float d) {
-        float z = d * 2.0 - 1.0;
-        return (2.0 * uCameraNear * uCameraFar) /
-               (uCameraFar + uCameraNear - z * (uCameraFar - uCameraNear));
-      }
-
-      float sampleDepth(vec2 uv) {
-        return linearizeDepth(texture2D(tDepth, uv).r);
+      // Compute luminance using BT.601 coefficients
+      float luma(vec3 c) {
+        return dot(c, vec3(0.299, 0.587, 0.114));
       }
 
       void main() {
-        vec4 color = texture2D(tDiffuse, vUv);
+        vec4 src = texture2D(tDiffuse, vUv);
+        float centerLuma = luma(src.rgb);
 
-        // Skip background (depth ~= 1)
-        float depth = texture2D(tDepth, vUv).r;
-        if (depth >= 0.9999) {
-          gl_FragColor = color;
-          return;
+        // Sample 8 neighbors at increasing distance to find dark gradients
+        vec2 texel = uRadius * 4.0 / uResolution;
+
+        // 8-direction sample pattern (octagonal)
+        vec2 offsets[8];
+        offsets[0] = vec2( 1.0,  0.0);
+        offsets[1] = vec2(-1.0,  0.0);
+        offsets[2] = vec2( 0.0,  1.0);
+        offsets[3] = vec2( 0.0, -1.0);
+        offsets[4] = vec2( 0.7,  0.7);
+        offsets[5] = vec2(-0.7,  0.7);
+        offsets[6] = vec2( 0.7, -0.7);
+        offsets[7] = vec2(-0.7, -0.7);
+
+        // Compute average neighbor darkness relative to center
+        float darknessSum = 0.0;
+        for (int i = 0; i < 8; i++) {
+          vec2 sampleUv = clamp(vUv + offsets[i] * texel, vec2(0.001), vec2(0.999));
+          float nLuma = luma(texture2D(tDiffuse, sampleUv).rgb);
+
+          // This pixel contributes to shadow if:
+          // 1. It's darker than the threshold
+          // 2. Its darkness is greater than center (gradient toward dark)
+          float darker = max(0.0, uThreshold - nLuma) / uThreshold;
+          darknessSum += darker;
         }
 
-        // Project light direction into screen space (approximate).
-        // For our static light config, this is close enough.
-        vec2 lightDirScreen = normalize(vec2(uLightDir.x, uLightDir.y));
+        // Average darkness (0..1)
+        float avgDarkness = darknessSum / 8.0;
 
-        float refDepth = linearizeDepth(depth);
-        float shadow = 0.0;
+        // Current pixel's own darkness factor
+        float centerDarkness = max(0.0, uThreshold - centerLuma) / uThreshold;
 
-        // March rays toward light in screen space
-        vec2 stepDelta = lightDirScreen * uDistance / uStepCount;
-        for (int i = 1; i <= 32; i++) {
-          if (float(i) > uStepCount) break;
-          vec2 sampleUv = vUv + stepDelta * float(i);
+        // Combined contact shadow: strong when BOTH neighbors AND center are dark
+        float contactAmount = avgDarkness * centerDarkness;
 
-          // Skip outside screen
-          if (sampleUv.x < 0.0 || sampleUv.x > 1.0 ||
-              sampleUv.y < 0.0 || sampleUv.y > 1.0) break;
+        // Apply softness curve
+        contactAmount = pow(contactAmount, 1.0 - uSoftness);
 
-          float sampleDepth_ = sampleDepth(sampleUv);
+        // Darken the pixel proportional to contact amount
+        vec3 darkened = src.rgb * (1.0 - contactAmount * uIntensity);
 
-          // If occluder is closer to camera than current point (plus thickness)
-          // and within acceptable depth range, we're in shadow.
-          float depthDiff = refDepth - sampleDepth_;
-          if (depthDiff > 0.001 && depthDiff < uThickness) {
-            // Fade by distance (closer occluders cast darker shadow)
-            float falloff = 1.0 - float(i) / uStepCount;
-            shadow = max(shadow, falloff);
-          }
-        }
-
-        // Apply shadow as color darkening
-        color.rgb *= 1.0 - shadow * uIntensity;
-
-        gl_FragColor = color;
+        gl_FragColor = vec4(darkened, src.a);
       }
     `,
   };

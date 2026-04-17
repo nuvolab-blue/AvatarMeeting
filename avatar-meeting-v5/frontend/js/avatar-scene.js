@@ -379,11 +379,6 @@ export class AvatarScene {
     if (this._filmHalationPass) {
       this._filmHalationPass.uniforms.uResolution.value.set(w, h);
     }
-    // v21: Resize depth texture to match composer render targets
-    if (this._contactShadowDepthTexture) {
-      this._contactShadowDepthTexture.image = { width: w, height: h };
-      this._contactShadowDepthTexture.needsUpdate = true;
-    }
     // v10: Resize BG render target
     if (this._bgRenderTarget) {
       const pw = w * Math.min(window.devicePixelRatio, 2);
@@ -442,31 +437,11 @@ export class AvatarScene {
       console.warn('[AvatarScene] SSAO not available:', e.message);
     }
 
-    // ★ v21: Contact shadow — after SSAO, before Bloom.
-    // Requires a depth texture on the composer's ping-pong render targets.
-    try {
-      this._contactShadowPass = createContactShadowPass();
-      this._contactShadowPass.uniforms.uResolution.value.set(w, h);
-      this._contactShadowPass.uniforms.uCameraNear.value = this._camera.near;
-      this._contactShadowPass.uniforms.uCameraFar.value = this._camera.far;
-
-      const depthTexture = new THREE.DepthTexture(w, h);
-      depthTexture.type = THREE.UnsignedShortType;
-      if (this._composer.renderTarget1) {
-        this._composer.renderTarget1.depthTexture = depthTexture;
-      }
-      if (this._composer.renderTarget2) {
-        this._composer.renderTarget2.depthTexture = depthTexture;
-      }
-      this._contactShadowPass.uniforms.tDepth.value = depthTexture;
-      this._contactShadowDepthTexture = depthTexture;
-      // v21: default OFF — depth texture integration with EffectComposer's
-      // ping-pong buffers is experimental. User can enable via UI.
-      this._contactShadowPass.enabled = false;
-      this._composer.addPass(this._contactShadowPass);
-    } catch (e) {
-      console.warn('[AvatarScene] Contact shadow not available:', e.message);
-    }
+    // ★ v21.1: Contact Shadow (luminance-based, no depth texture needed)
+    this._contactShadowPass = createContactShadowPass();
+    this._contactShadowPass.uniforms.uResolution.value.set(w, h);
+    this._contactShadowPass.enabled = true;  // safe to enable by default now
+    this._composer.addPass(this._contactShadowPass);
 
     this._bloomPass = new UnrealBloomPass(
       new THREE.Vector2(w, h), 0.4, 0.6, 0.85
@@ -1672,7 +1647,7 @@ export class AvatarScene {
   }
 
   // ==========================================================================
-  // v21: Contact Shadow API
+  // v21.1: Contact Shadow API (luminance-based)
   // ==========================================================================
 
   setContactShadowEnabled(enabled) {
@@ -1685,9 +1660,24 @@ export class AvatarScene {
     }
   }
 
-  setContactShadowDistance(v) {
+  /** Luminance threshold: below this value pixels are considered dark */
+  setContactShadowThreshold(v) {
     if (this._contactShadowPass) {
-      this._contactShadowPass.uniforms.uDistance.value = Math.max(0.01, Math.min(0.5, v));
+      this._contactShadowPass.uniforms.uThreshold.value = Math.max(0.1, Math.min(0.8, v));
+    }
+  }
+
+  /** Sampling radius in pixels */
+  setContactShadowRadius(v) {
+    if (this._contactShadowPass) {
+      this._contactShadowPass.uniforms.uRadius.value = Math.max(0.3, Math.min(3.0, v));
+    }
+  }
+
+  /** 0..1, how gradual the darkening (higher = softer) */
+  setContactShadowSoftness(v) {
+    if (this._contactShadowPass) {
+      this._contactShadowPass.uniforms.uSoftness.value = Math.max(0, Math.min(1, v));
     }
   }
 

@@ -386,7 +386,7 @@ class App {
       });
     }
 
-    // ===== v21: Contact Shadow =====
+    // ===== v21.1: Contact Shadow (luminance-based) =====
     const csEnabled = document.getElementById('contact-shadow-enabled');
     if (csEnabled) {
       csEnabled.addEventListener('change', (e) => {
@@ -401,12 +401,28 @@ class App {
         setValDisplay('contact-shadow-intensity-val', formatFixed(v, 2));
       });
     }
-    const csDistance = document.getElementById('contact-shadow-distance');
-    if (csDistance) {
-      csDistance.addEventListener('input', (e) => {
+    const csThreshold = document.getElementById('contact-shadow-threshold');
+    if (csThreshold) {
+      csThreshold.addEventListener('input', (e) => {
         const v = parseFloat(e.target.value);
-        this.scene.setContactShadowDistance(v);
-        setValDisplay('contact-shadow-distance-val', formatFixed(v, 2));
+        this.scene.setContactShadowThreshold(v);
+        setValDisplay('contact-shadow-threshold-val', formatFixed(v, 2));
+      });
+    }
+    const csRadius = document.getElementById('contact-shadow-radius');
+    if (csRadius) {
+      csRadius.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setContactShadowRadius(v);
+        setValDisplay('contact-shadow-radius-val', formatFixed(v, 2));
+      });
+    }
+    const csSoftness = document.getElementById('contact-shadow-softness');
+    if (csSoftness) {
+      csSoftness.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setContactShadowSoftness(v);
+        setValDisplay('contact-shadow-softness-val', formatFixed(v, 2));
       });
     }
 
