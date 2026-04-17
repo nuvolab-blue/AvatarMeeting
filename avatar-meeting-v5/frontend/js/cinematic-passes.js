@@ -334,3 +334,197 @@ export function createLensPass() {
   };
   return new ShaderPass(shader);
 }
+
+// ============================================================================
+// v21: Contact Shadow (Screen-Space Shadows)
+// ============================================================================
+// Fires a short ray from each pixel toward the primary light and samples
+// the depth buffer to detect occlusion. This produces sharp, contact-level
+// shadows where objects touch — the kind of detail that VSM cannot resolve.
+
+export function createContactShadowPass() {
+  const shader = {
+    uniforms: {
+      tDiffuse:    { value: null },
+      tDepth:      { value: null },      // Depth texture from composer
+      uLightDir:   { value: new THREE.Vector3(0.5, 0.8, 0.3).normalize() },
+      uIntensity:  { value: 0.7 },
+      uDistance:   { value: 0.15 },      // Max ray distance in screen space
+      uThickness:  { value: 0.02 },      // Depth thickness tolerance
+      uStepCount:  { value: 12 },        // Number of ray-march steps
+      uResolution: { value: new THREE.Vector2(1, 1) },
+      uCameraNear: { value: 0.1 },
+      uCameraFar:  { value: 100 },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D tDiffuse;
+      uniform sampler2D tDepth;
+      uniform vec3 uLightDir;
+      uniform float uIntensity;
+      uniform float uDistance;
+      uniform float uThickness;
+      uniform float uStepCount;
+      uniform vec2 uResolution;
+      uniform float uCameraNear;
+      uniform float uCameraFar;
+      varying vec2 vUv;
+
+      // Linearize depth from 0..1 NDC to actual distance
+      float linearizeDepth(float d) {
+        float z = d * 2.0 - 1.0;
+        return (2.0 * uCameraNear * uCameraFar) /
+               (uCameraFar + uCameraNear - z * (uCameraFar - uCameraNear));
+      }
+
+      float sampleDepth(vec2 uv) {
+        return linearizeDepth(texture2D(tDepth, uv).r);
+      }
+
+      void main() {
+        vec4 color = texture2D(tDiffuse, vUv);
+
+        // Skip background (depth ~= 1)
+        float depth = texture2D(tDepth, vUv).r;
+        if (depth >= 0.9999) {
+          gl_FragColor = color;
+          return;
+        }
+
+        // Project light direction into screen space (approximate).
+        // For our static light config, this is close enough.
+        vec2 lightDirScreen = normalize(vec2(uLightDir.x, uLightDir.y));
+
+        float refDepth = linearizeDepth(depth);
+        float shadow = 0.0;
+
+        // March rays toward light in screen space
+        vec2 stepDelta = lightDirScreen * uDistance / uStepCount;
+        for (int i = 1; i <= 32; i++) {
+          if (float(i) > uStepCount) break;
+          vec2 sampleUv = vUv + stepDelta * float(i);
+
+          // Skip outside screen
+          if (sampleUv.x < 0.0 || sampleUv.x > 1.0 ||
+              sampleUv.y < 0.0 || sampleUv.y > 1.0) break;
+
+          float sampleDepth_ = sampleDepth(sampleUv);
+
+          // If occluder is closer to camera than current point (plus thickness)
+          // and within acceptable depth range, we're in shadow.
+          float depthDiff = refDepth - sampleDepth_;
+          if (depthDiff > 0.001 && depthDiff < uThickness) {
+            // Fade by distance (closer occluders cast darker shadow)
+            float falloff = 1.0 - float(i) / uStepCount;
+            shadow = max(shadow, falloff);
+          }
+        }
+
+        // Apply shadow as color darkening
+        color.rgb *= 1.0 - shadow * uIntensity;
+
+        gl_FragColor = color;
+      }
+    `,
+  };
+  return new ShaderPass(shader);
+}
+
+// ============================================================================
+// v21: Film Halation (fine red/orange glow around bright areas)
+// ============================================================================
+// Emulates the chemical halation of film emulsion: when light hits film,
+// some scatters through the layers and re-emerges as a soft red-orange halo
+// around bright highlights. This is a subtle effect that separates film
+// from digital footage.
+
+export function createFilmHalationPass() {
+  const shader = {
+    uniforms: {
+      tDiffuse:    { value: null },
+      uThreshold:  { value: 0.75 },      // Brightness threshold
+      uIntensity:  { value: 0.3 },       // Halation strength
+      uRadius:     { value: 1.0 },       // Halo spread (0.5..2.0)
+      uTint:       { value: new THREE.Color(1.0, 0.5, 0.3) },  // red-orange
+      uResolution: { value: new THREE.Vector2(1, 1) },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D tDiffuse;
+      uniform float uThreshold;
+      uniform float uIntensity;
+      uniform float uRadius;
+      uniform vec3 uTint;
+      uniform vec2 uResolution;
+      varying vec2 vUv;
+
+      vec3 brightExtract(vec3 c) {
+        float l = max(c.r, max(c.g, c.b));
+        float t = smoothstep(uThreshold, 1.0, l);
+        return c * t;
+      }
+
+      void main() {
+        vec4 src = texture2D(tDiffuse, vUv);
+
+        // 13-tap disk blur centered on pixel, scaled by radius
+        vec2 texel = uRadius / uResolution;
+        vec3 halo = vec3(0.0);
+
+        // Star-shaped sample pattern for halo (more natural than box blur)
+        vec2 offsets[13];
+        offsets[0]  = vec2( 0.0,  0.0);
+        offsets[1]  = vec2( 1.0,  0.0);
+        offsets[2]  = vec2(-1.0,  0.0);
+        offsets[3]  = vec2( 0.0,  1.0);
+        offsets[4]  = vec2( 0.0, -1.0);
+        offsets[5]  = vec2( 0.7,  0.7);
+        offsets[6]  = vec2(-0.7,  0.7);
+        offsets[7]  = vec2( 0.7, -0.7);
+        offsets[8]  = vec2(-0.7, -0.7);
+        offsets[9]  = vec2( 2.0,  0.0);
+        offsets[10] = vec2(-2.0,  0.0);
+        offsets[11] = vec2( 0.0,  2.0);
+        offsets[12] = vec2( 0.0, -2.0);
+
+        float weights[13];
+        weights[0]  = 0.20;
+        weights[1]  = 0.10; weights[2]  = 0.10;
+        weights[3]  = 0.10; weights[4]  = 0.10;
+        weights[5]  = 0.06; weights[6]  = 0.06;
+        weights[7]  = 0.06; weights[8]  = 0.06;
+        weights[9]  = 0.04; weights[10] = 0.04;
+        weights[11] = 0.04; weights[12] = 0.04;
+
+        float totalWeight = 0.0;
+        for (int i = 0; i < 13; i++) {
+          vec2 sampleUv = vUv + offsets[i] * texel * 8.0;
+          sampleUv = clamp(sampleUv, vec2(0.001), vec2(0.999));
+          halo += brightExtract(texture2D(tDiffuse, sampleUv).rgb) * weights[i];
+          totalWeight += weights[i];
+        }
+        halo /= totalWeight;
+
+        // Tint the halo with film-characteristic red-orange
+        halo *= uTint;
+
+        // Additive composite
+        vec3 outColor = src.rgb + halo * uIntensity;
+        gl_FragColor = vec4(outColor, src.a);
+      }
+    `,
+  };
+  return new ShaderPass(shader);
+}

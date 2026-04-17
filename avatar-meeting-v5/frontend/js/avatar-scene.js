@@ -31,6 +31,8 @@ import {
   createLUTPass,
   createAnamorphicFlarePass,
   createLensPass,
+  createContactShadowPass,
+  createFilmHalationPass,
   getLUTTexture,
   LUT_PRESETS,
 } from './cinematic-passes.js';
@@ -370,6 +372,18 @@ export class AvatarScene {
     if (this._anamorphicFlarePass) {
       this._anamorphicFlarePass.uniforms.uResolution.value.set(w, h);
     }
+    // v21: Update resolution uniforms for new passes
+    if (this._contactShadowPass) {
+      this._contactShadowPass.uniforms.uResolution.value.set(w, h);
+    }
+    if (this._filmHalationPass) {
+      this._filmHalationPass.uniforms.uResolution.value.set(w, h);
+    }
+    // v21: Resize depth texture to match composer render targets
+    if (this._contactShadowDepthTexture) {
+      this._contactShadowDepthTexture.image = { width: w, height: h };
+      this._contactShadowDepthTexture.needsUpdate = true;
+    }
     // v10: Resize BG render target
     if (this._bgRenderTarget) {
       const pw = w * Math.min(window.devicePixelRatio, 2);
@@ -428,6 +442,32 @@ export class AvatarScene {
       console.warn('[AvatarScene] SSAO not available:', e.message);
     }
 
+    // ★ v21: Contact shadow — after SSAO, before Bloom.
+    // Requires a depth texture on the composer's ping-pong render targets.
+    try {
+      this._contactShadowPass = createContactShadowPass();
+      this._contactShadowPass.uniforms.uResolution.value.set(w, h);
+      this._contactShadowPass.uniforms.uCameraNear.value = this._camera.near;
+      this._contactShadowPass.uniforms.uCameraFar.value = this._camera.far;
+
+      const depthTexture = new THREE.DepthTexture(w, h);
+      depthTexture.type = THREE.UnsignedShortType;
+      if (this._composer.renderTarget1) {
+        this._composer.renderTarget1.depthTexture = depthTexture;
+      }
+      if (this._composer.renderTarget2) {
+        this._composer.renderTarget2.depthTexture = depthTexture;
+      }
+      this._contactShadowPass.uniforms.tDepth.value = depthTexture;
+      this._contactShadowDepthTexture = depthTexture;
+      // v21: default OFF — depth texture integration with EffectComposer's
+      // ping-pong buffers is experimental. User can enable via UI.
+      this._contactShadowPass.enabled = false;
+      this._composer.addPass(this._contactShadowPass);
+    } catch (e) {
+      console.warn('[AvatarScene] Contact shadow not available:', e.message);
+    }
+
     this._bloomPass = new UnrealBloomPass(
       new THREE.Vector2(w, h), 0.4, 0.6, 0.85
     );
@@ -458,6 +498,12 @@ export class AvatarScene {
 
     this._cinematicPass = this._createCinematicPass();
     this._composer.addPass(this._cinematicPass);
+
+    // ★ v21: Film Halation — after Cinematic (grain+vignette), before LUT
+    this._filmHalationPass = createFilmHalationPass();
+    this._filmHalationPass.uniforms.uResolution.value.set(w, h);
+    this._filmHalationPass.enabled = true;
+    this._composer.addPass(this._filmHalationPass);
 
     // v18: LUT — after Cinematic, before OutputPass (final color grading)
     this._lutPass = createLUTPass();
@@ -1622,6 +1668,52 @@ export class AvatarScene {
   setLensDistortion(v) {
     if (this._lensPass) {
       this._lensPass.uniforms.uDistortion.value = Math.max(-0.3, Math.min(0.3, v));
+    }
+  }
+
+  // ==========================================================================
+  // v21: Contact Shadow API
+  // ==========================================================================
+
+  setContactShadowEnabled(enabled) {
+    if (this._contactShadowPass) this._contactShadowPass.enabled = !!enabled;
+  }
+
+  setContactShadowIntensity(v) {
+    if (this._contactShadowPass) {
+      this._contactShadowPass.uniforms.uIntensity.value = Math.max(0, Math.min(1, v));
+    }
+  }
+
+  setContactShadowDistance(v) {
+    if (this._contactShadowPass) {
+      this._contactShadowPass.uniforms.uDistance.value = Math.max(0.01, Math.min(0.5, v));
+    }
+  }
+
+  // ==========================================================================
+  // v21: Film Halation API
+  // ==========================================================================
+
+  setFilmHalationEnabled(enabled) {
+    if (this._filmHalationPass) this._filmHalationPass.enabled = !!enabled;
+  }
+
+  setFilmHalationIntensity(v) {
+    if (this._filmHalationPass) {
+      this._filmHalationPass.uniforms.uIntensity.value = Math.max(0, Math.min(1, v));
+    }
+  }
+
+  setFilmHalationThreshold(v) {
+    if (this._filmHalationPass) {
+      this._filmHalationPass.uniforms.uThreshold.value = Math.max(0.3, Math.min(1.0, v));
+    }
+  }
+
+  setFilmHalationRadius(v) {
+    if (this._filmHalationPass) {
+      this._filmHalationPass.uniforms.uRadius.value = Math.max(0.3, Math.min(3.0, v));
     }
   }
 

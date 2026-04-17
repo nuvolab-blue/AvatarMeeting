@@ -386,6 +386,62 @@ class App {
       });
     }
 
+    // ===== v21: Contact Shadow =====
+    const csEnabled = document.getElementById('contact-shadow-enabled');
+    if (csEnabled) {
+      csEnabled.addEventListener('change', (e) => {
+        this.scene.setContactShadowEnabled(e.target.checked);
+      });
+    }
+    const csIntensity = document.getElementById('contact-shadow-intensity');
+    if (csIntensity) {
+      csIntensity.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setContactShadowIntensity(v);
+        setValDisplay('contact-shadow-intensity-val', formatFixed(v, 2));
+      });
+    }
+    const csDistance = document.getElementById('contact-shadow-distance');
+    if (csDistance) {
+      csDistance.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setContactShadowDistance(v);
+        setValDisplay('contact-shadow-distance-val', formatFixed(v, 2));
+      });
+    }
+
+    // ===== v21: Film Halation =====
+    const fhEnabled = document.getElementById('film-halation-enabled');
+    if (fhEnabled) {
+      fhEnabled.addEventListener('change', (e) => {
+        this.scene.setFilmHalationEnabled(e.target.checked);
+      });
+    }
+    const fhIntensity = document.getElementById('film-halation-intensity');
+    if (fhIntensity) {
+      fhIntensity.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setFilmHalationIntensity(v);
+        setValDisplay('film-halation-intensity-val', formatFixed(v, 2));
+      });
+    }
+    const fhThreshold = document.getElementById('film-halation-threshold');
+    if (fhThreshold) {
+      fhThreshold.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setFilmHalationThreshold(v);
+        setValDisplay('film-halation-threshold-val', formatFixed(v, 2));
+      });
+    }
+    const fhRadius = document.getElementById('film-halation-radius');
+    if (fhRadius) {
+      fhRadius.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setFilmHalationRadius(v);
+        setValDisplay('film-halation-radius-val', formatFixed(v, 2));
+      });
+    }
+
     // ===== v19: Kajiya-Kay hair =====
     const kkEnabled = document.getElementById('kk-enabled');
     if (kkEnabled) {

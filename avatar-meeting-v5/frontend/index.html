@@ -19,7 +19,7 @@
 <body>
   <header class="header">
     <h1>Avatar Meeting Studio</h1>
-    <span class="badge">v20 · Persistence</span>
+    <span class="badge">v21 · Contact + Halation</span>
   </header>
 
   <div class="main">
@@ -379,6 +379,59 @@
           色収差: レンズの不完全さによるRGBのズレ<br>
           レンズ歪み: 正値=樽型(広角)、負値=糸巻き(望遠)<br>
           アナモルフィックフレア: 明部から横に延びる青いフレア
+        </p>
+      </div>
+
+      <!-- v21: Contact Shadow -->
+      <div class="card">
+        <h3>🌑 コンタクトシャドウ</h3>
+        <div class="row">
+          <label for="contact-shadow-enabled">有効 (実験的)</label>
+          <input type="checkbox" id="contact-shadow-enabled">
+        </div>
+        <div class="row">
+          <label for="contact-shadow-intensity">強度</label>
+          <input type="range" id="contact-shadow-intensity" min="0" max="1" step="0.05" value="0.7">
+          <span class="val" id="contact-shadow-intensity-val">0.70</span>
+        </div>
+        <div class="row">
+          <label for="contact-shadow-distance">影の範囲</label>
+          <input type="range" id="contact-shadow-distance" min="0.01" max="0.5" step="0.01" value="0.15">
+          <span class="val" id="contact-shadow-distance-val">0.15</span>
+        </div>
+        <p class="hint">
+          物体の接触部(鼻の下、顎、髪の境界)に<br>
+          繊細な影を落としCG感を激減<br>
+          (Unreal/Unity HDRP 標準技術)
+        </p>
+      </div>
+
+      <!-- v21: Film Halation -->
+      <div class="card">
+        <h3>🎞 Film Halation</h3>
+        <div class="row">
+          <label for="film-halation-enabled">有効</label>
+          <input type="checkbox" id="film-halation-enabled" checked>
+        </div>
+        <div class="row">
+          <label for="film-halation-intensity">強度</label>
+          <input type="range" id="film-halation-intensity" min="0" max="1" step="0.02" value="0.3">
+          <span class="val" id="film-halation-intensity-val">0.30</span>
+        </div>
+        <div class="row">
+          <label for="film-halation-threshold">明部閾値</label>
+          <input type="range" id="film-halation-threshold" min="0.3" max="1" step="0.02" value="0.75">
+          <span class="val" id="film-halation-threshold-val">0.75</span>
+        </div>
+        <div class="row">
+          <label for="film-halation-radius">拡散半径</label>
+          <input type="range" id="film-halation-radius" min="0.3" max="3" step="0.1" value="1.0">
+          <span class="val" id="film-halation-radius-val">1.00</span>
+        </div>
+        <p class="hint">
+          35mmフィルム乳剤層の光散乱を再現。<br>
+          明部周辺に赤橙の微細なグロー。<br>
+          (『ジョーカー』等のフィルム風CG定番)
         </p>
       </div>
 
