@@ -19,7 +19,7 @@
 <body>
   <header class="header">
     <h1>Avatar Meeting Studio</h1>
-    <span class="badge">v21.1 · Luma Contact Shadow</span>
+    <span class="badge">v22 · Eye Enhancement</span>
   </header>
 
   <div class="main">
@@ -442,6 +442,40 @@
           35mmフィルム乳剤層の光散乱を再現。<br>
           明部周辺に赤橙の微細なグロー。<br>
           (『ジョーカー』等のフィルム風CG定番)
+        </p>
+      </div>
+
+      <!-- v22: Eye Enhancement -->
+      <div class="card">
+        <h3>👁 目のエンハンス</h3>
+        <div class="row">
+          <label for="eye-enabled">有効</label>
+          <input type="checkbox" id="eye-enabled" checked>
+        </div>
+        <div class="row">
+          <label for="eye-caustic-strength">屈折強度</label>
+          <input type="range" id="eye-caustic-strength" min="0" max="1" step="0.05" value="0.5">
+          <span class="val" id="eye-caustic-strength-val">0.50</span>
+        </div>
+        <div class="row">
+          <label for="eye-caustic-ior">屈折率 (IOR)</label>
+          <input type="range" id="eye-caustic-ior" min="1.01" max="2" step="0.01" value="1.38">
+          <span class="val" id="eye-caustic-ior-val">1.38</span>
+        </div>
+        <div class="row">
+          <label for="eye-wetness">潤い</label>
+          <input type="range" id="eye-wetness" min="0" max="1" step="0.05" value="0.8">
+          <span class="val" id="eye-wetness-val">0.80</span>
+        </div>
+        <div class="row">
+          <label for="eye-reflectivity">反射強度</label>
+          <input type="range" id="eye-reflectivity" min="0" max="1" step="0.05" value="0.6">
+          <span class="val" id="eye-reflectivity-val">0.60</span>
+        </div>
+        <p class="hint">
+          角膜レンズ屈折(IOR 1.376)で虹彩が視線と共に自然にシフト。<br>
+          Fresnel効果で縁に潤いのキャッチライト。<br>
+          不気味の谷を超える決定打
         </p>
       </div>
 

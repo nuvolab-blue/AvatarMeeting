@@ -458,6 +458,47 @@ class App {
       });
     }
 
+    // ===== v22: Eye Enhancement =====
+    const eyeEnabled = document.getElementById('eye-enabled');
+    if (eyeEnabled) {
+      eyeEnabled.addEventListener('change', (e) => {
+        this.scene.setEyeShaderEnabled(e.target.checked);
+        this._log('s', `目エンハンス: ${e.target.checked ? 'ON' : 'OFF'}`);
+      });
+    }
+    const eyeCausticStrength = document.getElementById('eye-caustic-strength');
+    if (eyeCausticStrength) {
+      eyeCausticStrength.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setEyeCausticStrength(v);
+        setValDisplay('eye-caustic-strength-val', formatFixed(v, 2));
+      });
+    }
+    const eyeCausticIOR = document.getElementById('eye-caustic-ior');
+    if (eyeCausticIOR) {
+      eyeCausticIOR.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setEyeCausticIOR(v);
+        setValDisplay('eye-caustic-ior-val', formatFixed(v, 2));
+      });
+    }
+    const eyeWetness = document.getElementById('eye-wetness');
+    if (eyeWetness) {
+      eyeWetness.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setEyeWetness(v);
+        setValDisplay('eye-wetness-val', formatFixed(v, 2));
+      });
+    }
+    const eyeReflectivity = document.getElementById('eye-reflectivity');
+    if (eyeReflectivity) {
+      eyeReflectivity.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setEyeReflectivity(v);
+        setValDisplay('eye-reflectivity-val', formatFixed(v, 2));
+      });
+    }
+
     // ===== v19: Kajiya-Kay hair =====
     const kkEnabled = document.getElementById('kk-enabled');
     if (kkEnabled) {

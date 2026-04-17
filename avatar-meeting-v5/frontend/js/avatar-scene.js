@@ -37,6 +37,7 @@ import {
   LUT_PRESETS,
 } from './cinematic-passes.js';
 import { applyKajiyaKayShader, removeKajiyaKayShader, updateKajiyaKayParams } from './kajiya-kay-hair.js';
+import { applyEyeShader, updateEyeParams } from './eye-shader.js';
 
 export class AvatarScene {
   /**
@@ -96,6 +97,12 @@ export class AvatarScene {
     this.kajiyaKayEnabled = true;
     /** @private @type {THREE.Material[]} hair materials currently applied to avatar */
     this._hairMaterials = [];
+
+    // ===== v22: Eye enhancement =====
+    /** @type {boolean} master toggle */
+    this.eyeShaderEnabled = true;
+    /** @private @type {Array<{material:THREE.Material, params:Object}>} */
+    this._eyeHandles = [];
 
     // ===== v17: Secondary motion (follow-through + hair physics) =====
     /** @type {SecondaryMotionController} */
@@ -941,6 +948,8 @@ export class AvatarScene {
 
     // v19: Reset hair material list before re-collecting
     this._hairMaterials = [];
+    // v22: Reset eye handles before re-collecting
+    this._eyeHandles = [];
 
     this._avatar.traverse((obj) => {
       if (!obj.isMesh) return;
@@ -951,6 +960,8 @@ export class AvatarScene {
       const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
       const isSkin = obj.name && /head|skin|body|face|wolf3d_(head|body)/i.test(obj.name);
       const isHair = obj.name && /hair|wolf3d_hair/i.test(obj.name);
+      // ★ v22: Eye detection (excludes brow, lash, lid)
+      const isEye  = obj.name && /eye(?!brow|lash|lid)|wolf3d_eye|cornea|iris/i.test(obj.name);
 
       for (let i = 0; i < mats.length; i++) {
         let m = mats[i];
@@ -1002,8 +1013,18 @@ export class AvatarScene {
           // as-is from the GLB (original shading preserved automatically).
         }
 
+        // ----- ★ v22: Eye (Caustic Refraction + Wet Surface) -----
+        if (isEye) {
+          const handle = applyEyeShader(m);
+          if (handle) {
+            // Apply current enabled state
+            updateEyeParams(m, { enabled: this.eyeShaderEnabled });
+            this._eyeHandles.push(handle);
+          }
+        }
+
         // ----- Common settings (existing — UNCHANGED) -----
-        if (m.envMapIntensity !== undefined && !isSkin && !isHair) {
+        if (m.envMapIntensity !== undefined && !isSkin && !isHair && !isEye) {
           m.envMapIntensity = 1.2;
         }
         if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
@@ -1014,7 +1035,8 @@ export class AvatarScene {
     console.log(
       `[AvatarScene] Material quality applied (SSS skin + ` +
       `${this.kajiyaKayEnabled ? 'Kajiya-Kay' : 'anisotropic'} hair, ` +
-      `${this._hairMaterials.length} hair materials)`
+      `${this._hairMaterials.length} hair mats, ` +
+      `${this._eyeHandles.length} eye mats)`
     );
   }
 
@@ -1706,6 +1728,36 @@ export class AvatarScene {
       this._filmHalationPass.uniforms.uRadius.value = Math.max(0.3, Math.min(3.0, v));
     }
   }
+
+  // ==========================================================================
+  // v22: Eye Enhancement API
+  // ==========================================================================
+
+  setEyeShaderEnabled(enabled) {
+    this.eyeShaderEnabled = !!enabled;
+    for (const h of this._eyeHandles) {
+      updateEyeParams(h.material, { enabled: this.eyeShaderEnabled });
+    }
+  }
+
+  setEyeParams(updates) {
+    for (const h of this._eyeHandles) {
+      updateEyeParams(h.material, updates);
+    }
+  }
+
+  setEyeCausticStrength(v) { this.setEyeParams({ causticStrength: v }); }
+  setEyeCausticIOR(v)      { this.setEyeParams({ causticIOR:      v }); }
+  setEyeWetness(v)         { this.setEyeParams({ eyeWetness:      v }); }
+  setEyeReflectivity(v)    { this.setEyeParams({ eyeReflectivity: v }); }
+
+  /** Set catchlight tint by hex (e.g. 0xfff5e0) */
+  setEyeCatchlightTint(hex) {
+    const c = new THREE.Color(hex);
+    this.setEyeParams({ catchlightTint: c });
+  }
+
+  getEyeMeshCount() { return this._eyeHandles.length; }
 
   // ==========================================================================
   // v19: Kajiya-Kay hair API
