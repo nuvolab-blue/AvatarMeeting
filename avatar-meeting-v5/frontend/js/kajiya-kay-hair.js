@@ -76,13 +76,26 @@ const KAJIYA_MAIN_CODE = /* glsl */ `
           }
         #endif
 
-        // ★ v19.3: Soft clip — prevent blow-out on already-bright hair.
-        // Instead of pure additive (which saturates), we blend based on
-        // remaining headroom in the base color.
+        // ★ v19.4: Dual modulation for physically correct hair highlights.
+        // (1) Headroom prevents blow-out on already-bright pixels.
+        // (2) Hair darkness modulation suppresses highlights on dark hair
+        //     (Energy Conservation: black hair absorbs more light, so
+        //      should reflect less — matches ILM/Pixar hair shader behavior).
         vec3 headroom = max(vec3(0.0), 1.0 - gl_FragColor.rgb);
-        vec3 safeKK = kkSpec * headroom;  // can only brighten where there's room
 
-        // Apply the soft-clipped highlight
+        // Compute hair luminance (how bright the base color is, 0..1)
+        float hairLuma = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
+
+        // Dark hair → strong suppression (25% at pure black),
+        // light hair → full reflection (100% at white).
+        // Quadratic curve smooths the transition.
+        float darkness = 1.0 - hairLuma;
+        float kkModulation = mix(1.0, 0.25, darkness * darkness);
+
+        // Combine headroom × darkness modulation
+        vec3 safeKK = kkSpec * headroom * kkModulation;
+
+        // Apply the doubly-limited highlight
         gl_FragColor.rgb += safeKK;
       }
       #include <dithering_fragment>
