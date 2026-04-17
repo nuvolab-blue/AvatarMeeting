@@ -37,7 +37,7 @@ import {
   LUT_PRESETS,
 } from './cinematic-passes.js';
 import { applyKajiyaKayShader, removeKajiyaKayShader, updateKajiyaKayParams } from './kajiya-kay-hair.js';
-import { applyEyeShader, updateEyeParams } from './eye-shader.js';
+import { applyEyeShader, updateEyeParams, removeEyeShader } from './eye-shader.js';
 
 export class AvatarScene {
   /**
@@ -960,8 +960,14 @@ export class AvatarScene {
       const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
       const isSkin = obj.name && /head|skin|body|face|wolf3d_(head|body)/i.test(obj.name);
       const isHair = obj.name && /hair|wolf3d_hair/i.test(obj.name);
-      // ★ v22: Eye detection (excludes brow, lash, lid)
-      const isEye  = obj.name && /eye(?!brow|lash|lid)|wolf3d_eye|cornea|iris/i.test(obj.name);
+      // ★ v22.1: Strict eye detection — match ONLY dedicated eye meshes.
+      // Matches:  EyeLeft, EyeRight, Eye_L, Eye_R, Wolf3D_Eye_Left, etc.
+      // Rejects:  Wolf3D_Head, Wolf3D_Body, EyeSocket, Eyebrow, Eyelash, etc.
+      const isEye = obj.name && (
+        /^(mixamorig:)?eye(left|right|_l|_r|_left|_right)?$/i.test(obj.name) ||
+        /^wolf3d_eye(left|right|_l|_r|_left|_right)?$/i.test(obj.name) ||
+        /^wolf3d_eye[_]?(l|r)$/i.test(obj.name)
+      );
 
       for (let i = 0; i < mats.length; i++) {
         let m = mats[i];

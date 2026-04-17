@@ -1,61 +1,45 @@
 /**
- * @fileoverview v22 — Eye Enhancement (Caustic Refraction + Wet Surface).
+ * @fileoverview v22.1 — Eye Enhancement (non-destructive, safe approach).
  *
- * Enhances eye meshes to look alive via:
- *   1. Parallax-based cornea refraction (iris shifts with view angle)
- *   2. Wet surface Fresnel reflection (catchlights at grazing angles)
+ * CRITICAL FIX from v22:
+ *   - NO destructive material property changes (clearcoat, roughness, etc.)
+ *   - All visual effects are generated IN-SHADER via uniforms
+ *   - ON/OFF toggle now actually works (pure uniform control)
+ *   - Original material is 100% preserved
  *
- * CRITICAL: Uses in-place onBeforeCompile patching (same approach as
- * v19.2 Kajiya-Kay). NEVER creates a new material — preserves 100% of
- * the original material's properties (maps, transparency, etc).
+ * Approach: in-place onBeforeCompile patch with shader-only effects.
+ * Parallax refraction for UV shift + Fresnel-based wet highlight overlay.
+ * No base material property mutation whatsoever.
  */
 
 import * as THREE from 'three';
 
 // ============================================================================
-// GLSL shader chunks
+// GLSL chunks
 // ============================================================================
 
 const EYE_UNIFORMS_DECL = /* glsl */ `
-  uniform float uEyeEnabled;         // 0.0 or 1.0 (master toggle)
-  uniform float uCausticStrength;    // 0..1 parallax amount
-  uniform float uCausticIOR;         // cornea IOR, typically 1.376
-  uniform float uEyeWetness;         // 0..1, catchlight intensity
-  uniform float uEyeReflectivity;    // 0..1, additional specular
-  uniform vec3  uCatchlightTint;     // warm white, defaults vec3(1.0, 0.96, 0.92)
+  uniform float uEyeEnabled;
+  uniform float uCausticStrength;
+  uniform float uCausticIOR;
+  uniform float uEyeWetness;
+  uniform float uEyeReflectivity;
+  uniform vec3  uCatchlightTint;
 `;
 
 const EYE_HELPERS = /* glsl */ `
-  /**
-   * Compute UV parallax from cornea refraction.
-   * Uses Snell's law approximation for view-dependent iris shift.
-   *
-   * viewDir:     surface → camera direction (normalized, local space)
-   * normalVec:   surface normal (normalized)
-   * iorRatio:    n1/n2 (air/cornea ≈ 0.727)
-   * virtDepth:   virtual thickness in UV units
-   */
+  // Parallax UV shift simulating cornea refraction
   vec2 corneaParallax(vec3 viewDir, vec3 normalVec, float iorRatio, float virtDepth) {
-    // Refract view ray through virtual cornea
     vec3 refracted = refract(-viewDir, normalVec, iorRatio);
-    // Check total internal reflection (very steep angles)
     if (dot(refracted, refracted) < 0.01) return vec2(0.0);
-    // Project refracted direction's xy onto tangent plane for UV offset
     return refracted.xy * virtDepth;
   }
 `;
 
 // ============================================================================
-// Eye material patching (in-place, like v19.2 Kajiya-Kay approach)
+// Eye shader patching (non-destructive)
 // ============================================================================
 
-/**
- * Apply eye enhancement shader to an EXISTING eye material IN-PLACE.
- * Does NOT create a new material.
- *
- * @param {THREE.Material} material - The existing eye material
- * @returns {Object|null} Handle { material, params } or null if not applicable
- */
 export function applyEyeShader(material) {
   if (!material) return null;
 
@@ -64,10 +48,9 @@ export function applyEyeShader(material) {
     return material.userData._eyeHandle;
   }
 
-  // Initialize userData if needed
   if (!material.userData) material.userData = {};
 
-  // Store eye parameters
+  // Store eye parameters (uniforms only, no material mutation)
   material.userData.eyeParams = {
     enabled:         true,
     causticStrength: 0.5,
@@ -77,40 +60,31 @@ export function applyEyeShader(material) {
     catchlightTint:  new THREE.Color(1.0, 0.96, 0.92),
   };
 
-  // Enhance base material for wet eye look (these are safe property changes,
-  // not structural — they don't break GLB transparency etc.)
-  // Only do this for MeshPhysicalMaterial (has clearcoat support)
-  if (material.isMeshPhysicalMaterial) {
-    // Clearcoat = very thin glossy layer (tear film)
-    if (typeof material.clearcoat === 'number') {
-      material.clearcoat = Math.max(material.clearcoat, 1.0);
-    }
-    if (typeof material.clearcoatRoughness === 'number') {
-      material.clearcoatRoughness = 0.05;  // very smooth tear film
-    }
-  }
-  // Both standard and physical have these:
-  if (typeof material.roughness === 'number') {
-    material.roughness = Math.min(material.roughness, 0.2);
-  }
-  if (typeof material.envMapIntensity === 'number') {
-    material.envMapIntensity = Math.max(material.envMapIntensity, 1.5);
-  }
+  // ========================================================================
+  // ★ v22.1 CRITICAL: NO base material property changes.
+  // We do NOT touch:
+  //   - material.clearcoat
+  //   - material.clearcoatRoughness
+  //   - material.roughness
+  //   - material.envMapIntensity
+  //   - material.metalness
+  //   - any other PBR property
+  // All wet-eye appearance is generated IN-SHADER via the uniforms above.
+  // This guarantees ON/OFF toggle works and OFF restores original look.
+  // ========================================================================
 
   // Diagnostic log
   console.log(
-    `[Eye] Patching eye material: ` +
+    `[Eye v22.1] Patching (non-destructive): ` +
+    `name="${material.name || '(unnamed)'}", ` +
     `type=${material.type}, ` +
-    `hasMap=${!!material.map}, ` +
-    `isPhysical=${!!material.isMeshPhysicalMaterial}, ` +
-    `transparent=${material.transparent}`
+    `hasMap=${!!material.map}`
   );
 
   // Chain onBeforeCompile (preserve any existing hook)
   const previousOnBeforeCompile = material.onBeforeCompile;
 
   material.onBeforeCompile = (shader, renderer) => {
-    // Run any previous hook first
     if (previousOnBeforeCompile) {
       previousOnBeforeCompile.call(material, shader, renderer);
     }
@@ -125,31 +99,28 @@ export function applyEyeShader(material) {
     shader.uniforms.uEyeReflectivity  = { value: p.eyeReflectivity };
     shader.uniforms.uCatchlightTint   = { value: p.catchlightTint };
 
-    // Save shader ref for runtime uniform updates
     material.userData._eyeShader = shader;
 
-    // Inject uniform declarations and helpers at top of fragment shader
+    // Inject uniform decls + helpers
     shader.fragmentShader = shader.fragmentShader.replace(
       'void main() {',
       EYE_UNIFORMS_DECL + '\n' + EYE_HELPERS + '\nvoid main() {'
     );
 
     // ========================================================================
-    // Part 1: Caustic Refraction — modify UV for map_fragment
+    // Part 1: Caustic Refraction (UV shift for map_fragment)
+    // Only active when uEyeEnabled > 0.5 AND uCausticStrength > 0
     // ========================================================================
-    // The #include <map_fragment> standard chunk samples texture using vUv.
-    // We replace it with a variant that uses parallax-shifted UV.
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <map_fragment>',
       /* glsl */ `
-      // ★ v22: Caustic Refraction — virtual cornea lens parallax
       #ifdef USE_MAP
         vec2 eyeUv = vUv;
         if (uEyeEnabled > 0.5 && uCausticStrength > 0.001) {
           vec3 V_eye = normalize(vViewPosition);
           vec3 N_eye = normalize(normal);
           float iorRatio = 1.0 / max(1.001, uCausticIOR);
-          float virtDepth = 0.008 * uCausticStrength;  // 8mm max virtual depth
+          float virtDepth = 0.008 * uCausticStrength;
           vec2 parallax = corneaParallax(V_eye, N_eye, iorRatio, virtDepth);
           eyeUv = clamp(vUv + parallax, vec2(0.001), vec2(0.999));
         }
@@ -160,32 +131,35 @@ export function applyEyeShader(material) {
     );
 
     // ========================================================================
-    // Part 2: Wet Eye Surface — Fresnel catchlight at end
+    // Part 2: Fresnel wet surface (additive catchlight, subtle)
+    // Only active when uEyeEnabled > 0.5. When OFF, zero contribution.
     // ========================================================================
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <dithering_fragment>',
       /* glsl */ `
-      // ★ v22: Wet eye Fresnel catchlight
+      // ★ v22.1: Non-destructive Fresnel catchlight (additive only)
       if (uEyeEnabled > 0.5) {
-        vec3 V_eye2 = normalize(vViewPosition);
-        vec3 N_eye2 = normalize(normal);
-        float NdotV = max(0.0, dot(N_eye2, V_eye2));
+        vec3 V_wet = normalize(vViewPosition);
+        vec3 N_wet = normalize(normal);
+        float NdotV = max(0.0, dot(N_wet, V_wet));
 
-        // Fresnel term: stronger at grazing angles (realistic wet surface)
+        // Fresnel — stronger at grazing angles
         float fresnel = pow(1.0 - NdotV, 3.0);
+        float catchAmount = fresnel * uEyeReflectivity * uEyeWetness;
 
-        // Combined reflectivity * wetness
-        float catchlight = fresnel * uEyeReflectivity * uEyeWetness;
-
-        // Apply warm-white catchlight blend
-        gl_FragColor.rgb = mix(gl_FragColor.rgb, uCatchlightTint, catchlight * 0.20);
+        // Add soft catchlight (mix-based to avoid over-brightening)
+        // Strength capped at 0.15 to prevent full whiteout
+        gl_FragColor.rgb = mix(
+          gl_FragColor.rgb,
+          uCatchlightTint,
+          catchAmount * 0.15
+        );
       }
       #include <dithering_fragment>
       `
     );
   };
 
-  // Mark as patched
   material.userData._eyePatched = true;
   material.needsUpdate = true;
 
@@ -195,7 +169,25 @@ export function applyEyeShader(material) {
 }
 
 /**
- * Update parameters on an already-patched eye material.
+ * Remove eye shader from a material. Restores original rendering.
+ * @param {THREE.Material} material
+ */
+export function removeEyeShader(material) {
+  if (!material || !material.userData || !material.userData._eyePatched) return;
+
+  // Clear onBeforeCompile to restore default rendering
+  material.onBeforeCompile = () => {};
+
+  delete material.userData.eyeParams;
+  delete material.userData._eyeShader;
+  delete material.userData._eyeHandle;
+  delete material.userData._eyePatched;
+
+  material.needsUpdate = true;
+}
+
+/**
+ * Update parameters on a patched eye material.
  * @param {THREE.Material} mat
  * @param {Object} updates
  */
@@ -213,7 +205,6 @@ export function updateEyeParams(mat, updates) {
     }
   }
 
-  // Push to live shader uniforms
   const sh = mat.userData._eyeShader;
   if (sh && sh.uniforms) {
     if (sh.uniforms.uEyeEnabled)       sh.uniforms.uEyeEnabled.value       = p.enabled ? 1.0 : 0.0;
