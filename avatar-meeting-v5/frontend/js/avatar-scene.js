@@ -959,9 +959,20 @@ export class AvatarScene {
             // alphaTest, maps, blending, etc.) — fixes "bald head" on custom avatars.
             applyKajiyaKayShader(m);
 
-            // Derive tint from diffuse color if no texture map
-            if (!m.map && m.color && m.userData.kkParams) {
-              m.userData.kkParams.hairTint.copy(m.color).multiplyScalar(1.5);
+            // ★ v19.3: Always derive tint from material color when available.
+            // This works even when there's a texture map (uses base color multiplier).
+            if (m.userData.kkParams) {
+              if (m.color) {
+                // Tint is slightly darker variant of base hair color for natural look
+                m.userData.kkParams.hairTint.copy(m.color).multiplyScalar(0.6);
+              }
+              // If color is pure white (common when texture provides color),
+              // keep default brown tint.
+              const isWhiteColor = m.color &&
+                m.color.r > 0.95 && m.color.g > 0.95 && m.color.b > 0.95;
+              if (isWhiteColor) {
+                m.userData.kkParams.hairTint.setHex(0x3a2015);  // fallback warm brown
+              }
             }
 
             this._hairMaterials.push(m);

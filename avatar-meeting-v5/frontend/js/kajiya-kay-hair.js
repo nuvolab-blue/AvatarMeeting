@@ -42,7 +42,9 @@ const KAJIYA_HELPERS = /* glsl */ `
 
 const KAJIYA_MAIN_CODE = /* glsl */ `
       // ============================================================
-      // v19.2: Kajiya-Kay hair specular contribution
+      // v19.3: Kajiya-Kay hair specular (with soft-clip to prevent blow-out)
+      // NOTE: plain GLSL for-loop (not #pragma unroll_loop_start) — retained
+      // from v19.2 fix to avoid variable redefinition errors during unrolling.
       // ============================================================
       {
         vec3 N_kk = normalize(normal);
@@ -57,15 +59,31 @@ const KAJIYA_MAIN_CODE = /* glsl */ `
           for (int kk_i = 0; kk_i < NUM_DIR_LIGHTS; kk_i++) {
             vec3 L_kk = normalize(directionalLights[ kk_i ].direction);
             vec3 H_kk = normalize(L_kk + V_kk);
+
+            vec3 T_R = shiftTangent(T_kk, N_kk, uPrimaryShift);
+            float r_lobe = kajiyaKayLobe(T_R, H_kk, uPrimaryWidth);
+
+            vec3 T_TT = shiftTangent(T_kk, N_kk, uSecondaryShift);
+            float tt_lobe = kajiyaKayLobe(T_TT, H_kk, uSecondaryWidth);
+
             float NdotL = max(0.0, dot(N_kk, L_kk));
-            kkSpec += directionalLights[ kk_i ].color * NdotL * (
-              uPrimaryStrength   * kajiyaKayLobe(shiftTangent(T_kk, N_kk, uPrimaryShift),   H_kk, uPrimaryWidth)   * vec3(1.0) +
-              uSecondaryStrength * kajiyaKayLobe(shiftTangent(T_kk, N_kk, uSecondaryShift), H_kk, uSecondaryWidth) * uHairTint
+            vec3 lightCol = directionalLights[ kk_i ].color;
+
+            kkSpec += lightCol * NdotL * (
+              uPrimaryStrength   * r_lobe  * vec3(1.0) +
+              uSecondaryStrength * tt_lobe * uHairTint
             );
           }
         #endif
 
-        gl_FragColor.rgb += kkSpec;
+        // ★ v19.3: Soft clip — prevent blow-out on already-bright hair.
+        // Instead of pure additive (which saturates), we blend based on
+        // remaining headroom in the base color.
+        vec3 headroom = max(vec3(0.0), 1.0 - gl_FragColor.rgb);
+        vec3 safeKK = kkSpec * headroom;  // can only brighten where there's room
+
+        // Apply the soft-clipped highlight
+        gl_FragColor.rgb += safeKK;
       }
       #include <dithering_fragment>
 `;
@@ -87,15 +105,15 @@ export function applyKajiyaKayShader(material) {
   // Skip if already patched
   if (material.userData._kkPatched) return;
 
-  // Store KK parameters
+  // Store KK parameters (v19.3: subtler defaults for natural look)
   material.userData.kkParams = {
-    hairTint:          new THREE.Color(0x6b3a1a),
-    primaryShift:      0.2,
-    secondaryShift:   -0.3,
-    primaryWidth:      0.18,
-    secondaryWidth:    0.30,
-    primaryStrength:   0.8,
-    secondaryStrength: 0.45,
+    hairTint:          new THREE.Color(0x3a2015),  // darker warm brown (was 0x6b3a1a)
+    primaryShift:      0.15,                        // (was 0.2)
+    secondaryShift:   -0.25,                        // (was -0.3)
+    primaryWidth:      0.12,                        // tighter (was 0.18)
+    secondaryWidth:    0.22,                        // tighter (was 0.30)
+    primaryStrength:   0.5,                         // weaker (was 0.8)
+    secondaryStrength: 0.25,                        // weaker (was 0.45)
   };
 
   // Diagnostic log
