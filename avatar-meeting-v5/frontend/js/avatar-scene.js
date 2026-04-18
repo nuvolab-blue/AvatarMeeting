@@ -37,7 +37,11 @@ import {
   LUT_PRESETS,
 } from './cinematic-passes.js';
 import { applyKajiyaKayShader, removeKajiyaKayShader, updateKajiyaKayParams } from './kajiya-kay-hair.js';
-import { applyEyeShader, updateEyeParams, removeEyeShader } from './eye-shader.js';
+import {
+  applyEyeShader, updateEyeParams, removeEyeShader,
+  applyEyeOcclusion, updateEyeOcclusionParams,
+} from './eye-shader.js';
+import { applySSSShader, updateSSSParams, removeSSSShader } from './skin-sss.js';
 
 export class AvatarScene {
   /**
@@ -103,6 +107,14 @@ export class AvatarScene {
     this.eyeShaderEnabled = true;
     /** @private @type {Array<{material:THREE.Material, params:Object}>} */
     this._eyeHandles = [];
+
+    // ===== v23: SSS + Eye Occlusion =====
+    /** @type {boolean} */
+    this.sssEnabled = true;
+    /** @private @type {Array<{material:THREE.Material, params:Object}>} */
+    this._skinMaterials = [];
+    /** @type {boolean} */
+    this.eyeOcclusionEnabled = true;
 
     // ===== v17: Secondary motion (follow-through + hair physics) =====
     /** @type {SecondaryMotionController} */
@@ -950,6 +962,8 @@ export class AvatarScene {
     this._hairMaterials = [];
     // v22: Reset eye handles before re-collecting
     this._eyeHandles = [];
+    // v23: Reset skin SSS handles before re-collecting
+    this._skinMaterials = [];
 
     this._avatar.traverse((obj) => {
       if (!obj.isMesh) return;
@@ -989,6 +1003,17 @@ export class AvatarScene {
           m = physical;
         }
 
+        // ----- ★ v23: SSS shader patch (non-destructive, on top of skin) -----
+        if (isSkin && !isEye) {
+          const sssHandle = applySSSShader(m);
+          if (sssHandle) {
+            updateSSSParams(m, { enabled: this.sssEnabled });
+            if (!this._skinMaterials.some((h) => h.material === sssHandle.material)) {
+              this._skinMaterials.push(sssHandle);
+            }
+          }
+        }
+
         // ----- ★ v19.2: Hair (Kajiya-Kay — in-place patch) -----
         if (isHair) {
           if (this.kajiyaKayEnabled) {
@@ -1019,14 +1044,18 @@ export class AvatarScene {
           // as-is from the GLB (original shading preserved automatically).
         }
 
-        // ----- ★ v22: Eye (Caustic Refraction + Wet Surface) -----
+        // ----- ★ v22.2 + v23: Eye (Caustic + Wet + Occlusion) -----
         if (isEye) {
           const handle = applyEyeShader(m);
           if (handle) {
-            // Apply current enabled state
             updateEyeParams(m, { enabled: this.eyeShaderEnabled });
-            this._eyeHandles.push(handle);
+            if (!this._eyeHandles.some((h) => h.material === handle.material)) {
+              this._eyeHandles.push(handle);
+            }
           }
+          // v23: Add occlusion shadow (chains on top of eye shader)
+          applyEyeOcclusion(m);
+          updateEyeOcclusionParams(m, { enabled: this.eyeOcclusionEnabled });
         }
 
         // ----- Common settings (existing — UNCHANGED) -----
@@ -1042,7 +1071,8 @@ export class AvatarScene {
       `[AvatarScene] Material quality applied (SSS skin + ` +
       `${this.kajiyaKayEnabled ? 'Kajiya-Kay' : 'anisotropic'} hair, ` +
       `${this._hairMaterials.length} hair mats, ` +
-      `${this._eyeHandles.length} eye mats)`
+      `${this._eyeHandles.length} eye mats, ` +
+      `${this._skinMaterials.length} skin SSS mats)`
     );
   }
 
@@ -1764,6 +1794,60 @@ export class AvatarScene {
   }
 
   getEyeMeshCount() { return this._eyeHandles.length; }
+
+  // ==========================================================================
+  // v23: SSS API
+  // ==========================================================================
+
+  setSSSEnabled(enabled) {
+    this.sssEnabled = !!enabled;
+    for (const h of this._skinMaterials) {
+      updateSSSParams(h.material, { enabled: this.sssEnabled });
+    }
+  }
+
+  setSSSParams(updates) {
+    for (const h of this._skinMaterials) {
+      updateSSSParams(h.material, updates);
+    }
+  }
+
+  setSSSStrength(v)   { this.setSSSParams({ strength:   v }); }
+  setSSSDistortion(v) { this.setSSSParams({ distortion: v }); }
+  setSSSAmbient(v)    { this.setSSSParams({ ambient:    v }); }
+  setSSSPower(v)      { this.setSSSParams({ power:      v }); }
+  setSSSThinness(v)   { this.setSSSParams({ thinness:   v }); }
+
+  setSSSColor(hex) {
+    const c = new THREE.Color(hex);
+    this.setSSSParams({ color: c });
+  }
+
+  // ==========================================================================
+  // v23: Eye Occlusion API
+  // ==========================================================================
+
+  setEyeOcclusionEnabled(enabled) {
+    this.eyeOcclusionEnabled = !!enabled;
+    for (const h of this._eyeHandles) {
+      updateEyeOcclusionParams(h.material, { enabled: this.eyeOcclusionEnabled });
+    }
+  }
+
+  setEyeOcclusionParams(updates) {
+    for (const h of this._eyeHandles) {
+      updateEyeOcclusionParams(h.material, updates);
+    }
+  }
+
+  setEyeOcclusionStrength(v) { this.setEyeOcclusionParams({ strength: v }); }
+  setEyeOcclusionRadius(v)   { this.setEyeOcclusionParams({ radius:   v }); }
+  setEyeOcclusionSoftness(v) { this.setEyeOcclusionParams({ softness: v }); }
+
+  setEyeOcclusionTint(hex) {
+    const c = new THREE.Color(hex);
+    this.setEyeOcclusionParams({ tint: c });
+  }
 
   // ==========================================================================
   // v19: Kajiya-Kay hair API

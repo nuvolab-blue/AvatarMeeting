@@ -19,7 +19,7 @@
 <body>
   <header class="header">
     <h1>Avatar Meeting Studio</h1>
-    <span class="badge">v22.2 · Eye shader varying fix</span>
+    <span class="badge">v23 · SSS + Eye Occlusion</span>
   </header>
 
   <div class="main">
@@ -476,6 +476,84 @@
           角膜レンズ屈折(IOR 1.376)で虹彩が視線と共に自然にシフト。<br>
           Fresnel効果で縁に潤いのキャッチライト。<br>
           不気味の谷を超える決定打
+        </p>
+      </div>
+
+      <!-- v23: Subsurface Scattering (Skin) -->
+      <div class="card">
+        <h3>🩸 皮下散乱 (SSS)</h3>
+        <div class="row">
+          <label for="sss-enabled">有効</label>
+          <input type="checkbox" id="sss-enabled" checked>
+        </div>
+        <div class="row">
+          <label for="sss-strength">強度</label>
+          <input type="range" id="sss-strength" min="0" max="1" step="0.02" value="0.35">
+          <span class="val" id="sss-strength-val">0.35</span>
+        </div>
+        <div class="row">
+          <label for="sss-distortion">屈曲</label>
+          <input type="range" id="sss-distortion" min="0" max="1" step="0.02" value="0.25">
+          <span class="val" id="sss-distortion-val">0.25</span>
+        </div>
+        <div class="row">
+          <label for="sss-ambient">周囲光</label>
+          <input type="range" id="sss-ambient" min="0" max="0.3" step="0.01" value="0.1">
+          <span class="val" id="sss-ambient-val">0.10</span>
+        </div>
+        <div class="row">
+          <label for="sss-power">鋭さ</label>
+          <input type="range" id="sss-power" min="1" max="4" step="0.1" value="2.0">
+          <span class="val" id="sss-power-val">2.00</span>
+        </div>
+        <div class="row">
+          <label for="sss-thinness">薄さ強調</label>
+          <input type="range" id="sss-thinness" min="0" max="1" step="0.05" value="0.6">
+          <span class="val" id="sss-thinness-val">0.60</span>
+        </div>
+        <div class="row">
+          <label for="sss-color">血色</label>
+          <input type="color" id="sss-color" value="#ff7359">
+          <input type="text" id="sss-color-hex" class="hex-input" value="#ff7359" maxlength="7">
+        </div>
+        <p class="hint">
+          逆光で耳・鼻がピンクに透ける皮下散乱。<br>
+          強度・鋭さで効果量、薄さ強調で縁を光らせる。<br>
+          (Activision Jimenez 2015 ベース)
+        </p>
+      </div>
+
+      <!-- v23: Eye Occlusion -->
+      <div class="card">
+        <h3>🌓 眼窩陰影</h3>
+        <div class="row">
+          <label for="occlusion-enabled">有効</label>
+          <input type="checkbox" id="occlusion-enabled" checked>
+        </div>
+        <div class="row">
+          <label for="occlusion-strength">強度</label>
+          <input type="range" id="occlusion-strength" min="0" max="1" step="0.02" value="0.4">
+          <span class="val" id="occlusion-strength-val">0.40</span>
+        </div>
+        <div class="row">
+          <label for="occlusion-radius">影の範囲</label>
+          <input type="range" id="occlusion-radius" min="0.1" max="0.5" step="0.01" value="0.35">
+          <span class="val" id="occlusion-radius-val">0.35</span>
+        </div>
+        <div class="row">
+          <label for="occlusion-softness">柔らかさ</label>
+          <input type="range" id="occlusion-softness" min="0" max="1" step="0.05" value="0.6">
+          <span class="val" id="occlusion-softness-val">0.60</span>
+        </div>
+        <div class="row">
+          <label for="occlusion-tint">影の色</label>
+          <input type="color" id="occlusion-tint" value="#261a14">
+          <input type="text" id="occlusion-tint-hex" class="hex-input" value="#261a14" maxlength="7">
+        </div>
+        <p class="hint">
+          目の周囲(眼窩、涙管、下瞼)に深みを与える影。<br>
+          Pixar のキャラクター目に使われる定番技術。<br>
+          視線の重み、伏し目の表現が自然に。
         </p>
       </div>
 

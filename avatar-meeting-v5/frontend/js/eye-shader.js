@@ -220,3 +220,136 @@ export function updateEyeParams(mat, updates) {
     if (sh.uniforms.uCatchlightTint)   sh.uniforms.uCatchlightTint.value   = p.catchlightTint;
   }
 }
+
+
+// ============================================================================
+// ★ v23: Eye Occlusion Shadow (orbital shadow around eye mesh)
+// ============================================================================
+// Applies a subtle darkening to eye mesh edges, simulating the shadow cast
+// by eyelids, brow ridge, and orbital socket. UV-radial darkening + Fresnel.
+
+const OCCLUSION_UNIFORMS_DECL = /* glsl */ `
+  uniform float uOcclusionEnabled;
+  uniform float uOcclusionStrength;
+  uniform float uOcclusionRadius;
+  uniform float uOcclusionSoftness;
+  uniform vec3  uOcclusionTint;
+`;
+
+/**
+ * Extend an eye material with occlusion shadow effect.
+ * Must be called AFTER applyEyeShader() — chains on top.
+ * @param {THREE.Material} material
+ * @returns {boolean} true if applied
+ */
+export function applyEyeOcclusion(material) {
+  if (!material) return false;
+
+  if (material.userData && material.userData._occlusionPatched) {
+    return true;
+  }
+
+  if (!material.userData) material.userData = {};
+
+  material.userData.occlusionParams = {
+    enabled:  true,
+    strength: 0.4,
+    radius:   0.35,
+    softness: 0.6,
+    tint:     new THREE.Color(0.15, 0.10, 0.08),  // warm dark brown
+  };
+
+  console.log(
+    `[Eye Occlusion] Patching: name="${material.name || '(unnamed)'}"`
+  );
+
+  const previousOnBeforeCompile = material.onBeforeCompile;
+
+  material.onBeforeCompile = (shader, renderer) => {
+    if (previousOnBeforeCompile) {
+      previousOnBeforeCompile.call(material, shader, renderer);
+    }
+
+    const p = material.userData.occlusionParams;
+
+    shader.uniforms.uOcclusionEnabled   = { value: p.enabled ? 1.0 : 0.0 };
+    shader.uniforms.uOcclusionStrength  = { value: p.strength };
+    shader.uniforms.uOcclusionRadius    = { value: p.radius };
+    shader.uniforms.uOcclusionSoftness  = { value: p.softness };
+    shader.uniforms.uOcclusionTint      = { value: p.tint };
+
+    material.userData._occlusionShader = shader;
+
+    // Inject uniforms at top
+    shader.fragmentShader = shader.fragmentShader.replace(
+      'void main() {',
+      OCCLUSION_UNIFORMS_DECL + '\nvoid main() {'
+    );
+
+    // Inject occlusion darkening before dithering. UV-based radial
+    // darkening requires vMapUv (only declared when USE_MAP is defined);
+    // Fresnel-based darkening works unconditionally.
+    if (shader.fragmentShader.includes('#include <dithering_fragment>')) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <dithering_fragment>',
+        /* glsl */ `
+        // ★ v23: Eye occlusion — darken eye mesh periphery for orbital depth
+        if (uOcclusionEnabled > 0.5) {
+          float uvOcclusion = 0.0;
+          #ifdef USE_MAP
+            vec2 uvCenter = vMapUv - vec2(0.5);
+            float uvDist = length(uvCenter);
+            uvOcclusion = smoothstep(
+              uOcclusionRadius * (1.0 - uOcclusionSoftness),
+              uOcclusionRadius,
+              uvDist
+            );
+          #endif
+
+          // Fresnel darkening at grazing angles (eyelid shadow at edges)
+          vec3 V_occ = normalize(vViewPosition);
+          vec3 N_occ = normalize(normal);
+          float NdotV_occ = max(0.0, dot(N_occ, V_occ));
+          float fresnel_occ = pow(1.0 - NdotV_occ, 2.0);
+
+          float finalOcc =
+            uvOcclusion * uOcclusionStrength +
+            fresnel_occ * uOcclusionStrength * 0.3;
+          finalOcc = clamp(finalOcc, 0.0, 0.6);  // cap to avoid total black
+
+          gl_FragColor.rgb = mix(gl_FragColor.rgb, uOcclusionTint, finalOcc);
+        }
+        #include <dithering_fragment>
+        `
+      );
+    }
+  };
+
+  material.userData._occlusionPatched = true;
+  material.needsUpdate = true;
+  return true;
+}
+
+export function updateEyeOcclusionParams(mat, updates) {
+  if (!mat || !mat.userData || !mat.userData.occlusionParams) return;
+  const p = mat.userData.occlusionParams;
+
+  for (const [key, val] of Object.entries(updates)) {
+    if (key === 'tint' && val) {
+      p.tint.copy(val);
+    } else if (key === 'enabled') {
+      p.enabled = !!val;
+    } else if (typeof val === 'number') {
+      p[key] = val;
+    }
+  }
+
+  const sh = mat.userData._occlusionShader;
+  if (sh && sh.uniforms) {
+    if (sh.uniforms.uOcclusionEnabled)   sh.uniforms.uOcclusionEnabled.value   = p.enabled ? 1.0 : 0.0;
+    if (sh.uniforms.uOcclusionStrength)  sh.uniforms.uOcclusionStrength.value  = p.strength;
+    if (sh.uniforms.uOcclusionRadius)    sh.uniforms.uOcclusionRadius.value    = p.radius;
+    if (sh.uniforms.uOcclusionSoftness)  sh.uniforms.uOcclusionSoftness.value  = p.softness;
+    if (sh.uniforms.uOcclusionTint)      sh.uniforms.uOcclusionTint.value      = p.tint;
+  }
+}

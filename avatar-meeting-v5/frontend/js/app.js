@@ -499,6 +499,170 @@ class App {
       });
     }
 
+    // ===== v23: SSS =====
+    const sssEnabled = document.getElementById('sss-enabled');
+    if (sssEnabled) {
+      sssEnabled.addEventListener('change', (e) => {
+        this.scene.setSSSEnabled(e.target.checked);
+        this._log('s', `SSS: ${e.target.checked ? 'ON' : 'OFF'}`);
+      });
+    }
+    const sssStrength = document.getElementById('sss-strength');
+    if (sssStrength) {
+      sssStrength.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setSSSStrength(v);
+        setValDisplay('sss-strength-val', formatFixed(v, 2));
+      });
+    }
+    const sssDistortion = document.getElementById('sss-distortion');
+    if (sssDistortion) {
+      sssDistortion.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setSSSDistortion(v);
+        setValDisplay('sss-distortion-val', formatFixed(v, 2));
+      });
+    }
+    const sssAmbient = document.getElementById('sss-ambient');
+    if (sssAmbient) {
+      sssAmbient.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setSSSAmbient(v);
+        setValDisplay('sss-ambient-val', formatFixed(v, 2));
+      });
+    }
+    const sssPower = document.getElementById('sss-power');
+    if (sssPower) {
+      sssPower.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setSSSPower(v);
+        setValDisplay('sss-power-val', formatFixed(v, 2));
+      });
+    }
+    const sssThinness = document.getElementById('sss-thinness');
+    if (sssThinness) {
+      sssThinness.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setSSSThinness(v);
+        setValDisplay('sss-thinness-val', formatFixed(v, 2));
+      });
+    }
+
+    // SSS color (picker + hex)
+    const sssColor = document.getElementById('sss-color');
+    const sssColorHex = document.getElementById('sss-color-hex');
+    const applySSSColor = (hexStr) => {
+      const match = /^#([0-9a-fA-F]{6})$/.exec(hexStr.trim());
+      if (!match) return false;
+      this.scene.setSSSColor(parseInt(match[1], 16));
+      return true;
+    };
+    if (sssColor) {
+      sssColor.addEventListener('input', (e) => {
+        const hex = e.target.value.toLowerCase();
+        applySSSColor(hex);
+        if (sssColorHex) {
+          sssColorHex.value = hex;
+          sssColorHex.classList.remove('invalid');
+        }
+      });
+    }
+    if (sssColorHex) {
+      sssColorHex.addEventListener('input', (e) => {
+        let val = e.target.value.trim();
+        if (val.length === 6 && !val.startsWith('#')) {
+          val = '#' + val;
+          e.target.value = val;
+        }
+        if (applySSSColor(val)) {
+          e.target.classList.remove('invalid');
+          if (sssColor) sssColor.value = val.toLowerCase();
+        } else {
+          e.target.classList.add('invalid');
+        }
+      });
+      sssColorHex.addEventListener('blur', (e) => {
+        if (e.target.classList.contains('invalid') && sssColor) {
+          e.target.value = sssColor.value.toLowerCase();
+          e.target.classList.remove('invalid');
+        }
+      });
+    }
+
+    // ===== v23: Eye Occlusion =====
+    const occEnabled = document.getElementById('occlusion-enabled');
+    if (occEnabled) {
+      occEnabled.addEventListener('change', (e) => {
+        this.scene.setEyeOcclusionEnabled(e.target.checked);
+        this._log('s', `眼窩陰影: ${e.target.checked ? 'ON' : 'OFF'}`);
+      });
+    }
+    const occStrength = document.getElementById('occlusion-strength');
+    if (occStrength) {
+      occStrength.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setEyeOcclusionStrength(v);
+        setValDisplay('occlusion-strength-val', formatFixed(v, 2));
+      });
+    }
+    const occRadius = document.getElementById('occlusion-radius');
+    if (occRadius) {
+      occRadius.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setEyeOcclusionRadius(v);
+        setValDisplay('occlusion-radius-val', formatFixed(v, 2));
+      });
+    }
+    const occSoftness = document.getElementById('occlusion-softness');
+    if (occSoftness) {
+      occSoftness.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        this.scene.setEyeOcclusionSoftness(v);
+        setValDisplay('occlusion-softness-val', formatFixed(v, 2));
+      });
+    }
+
+    // Occlusion tint (picker + hex)
+    const occTint = document.getElementById('occlusion-tint');
+    const occTintHex = document.getElementById('occlusion-tint-hex');
+    const applyOccTint = (hexStr) => {
+      const match = /^#([0-9a-fA-F]{6})$/.exec(hexStr.trim());
+      if (!match) return false;
+      this.scene.setEyeOcclusionTint(parseInt(match[1], 16));
+      return true;
+    };
+    if (occTint) {
+      occTint.addEventListener('input', (e) => {
+        const hex = e.target.value.toLowerCase();
+        applyOccTint(hex);
+        if (occTintHex) {
+          occTintHex.value = hex;
+          occTintHex.classList.remove('invalid');
+        }
+      });
+    }
+    if (occTintHex) {
+      occTintHex.addEventListener('input', (e) => {
+        let val = e.target.value.trim();
+        if (val.length === 6 && !val.startsWith('#')) {
+          val = '#' + val;
+          e.target.value = val;
+        }
+        if (applyOccTint(val)) {
+          e.target.classList.remove('invalid');
+          if (occTint) occTint.value = val.toLowerCase();
+        } else {
+          e.target.classList.add('invalid');
+        }
+      });
+      occTintHex.addEventListener('blur', (e) => {
+        if (e.target.classList.contains('invalid') && occTint) {
+          e.target.value = occTint.value.toLowerCase();
+          e.target.classList.remove('invalid');
+        }
+      });
+    }
+
     // ===== v19: Kajiya-Kay hair =====
     const kkEnabled = document.getElementById('kk-enabled');
     if (kkEnabled) {
