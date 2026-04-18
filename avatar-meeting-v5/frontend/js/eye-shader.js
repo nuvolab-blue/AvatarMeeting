@@ -114,16 +114,21 @@ export function applyEyeShader(material) {
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <map_fragment>',
       /* glsl */ `
+      // ★ v22.2: use vMapUv (r0.160 per-map UV) and vNormal (geometry
+      // normal varying). At this point in the fragment main(),
+      // <normal_fragment_begin> hasn't run yet so 'normal' is undefined.
       #ifdef USE_MAP
-        vec2 eyeUv = vUv;
-        if (uEyeEnabled > 0.5 && uCausticStrength > 0.001) {
-          vec3 V_eye = normalize(vViewPosition);
-          vec3 N_eye = normalize(normal);
-          float iorRatio = 1.0 / max(1.001, uCausticIOR);
-          float virtDepth = 0.008 * uCausticStrength;
-          vec2 parallax = corneaParallax(V_eye, N_eye, iorRatio, virtDepth);
-          eyeUv = clamp(vUv + parallax, vec2(0.001), vec2(0.999));
-        }
+        vec2 eyeUv = vMapUv;
+        #ifndef FLAT_SHADED
+          if (uEyeEnabled > 0.5 && uCausticStrength > 0.001) {
+            vec3 V_eye = normalize(vViewPosition);
+            vec3 N_eye = normalize(vNormal);
+            float iorRatio = 1.0 / max(1.001, uCausticIOR);
+            float virtDepth = 0.008 * uCausticStrength;
+            vec2 parallax = corneaParallax(V_eye, N_eye, iorRatio, virtDepth);
+            eyeUv = clamp(vMapUv + parallax, vec2(0.001), vec2(0.999));
+          }
+        #endif
         vec4 sampledDiffuseColor = texture2D(map, eyeUv);
         diffuseColor *= sampledDiffuseColor;
       #endif
